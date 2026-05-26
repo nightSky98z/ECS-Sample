@@ -61,6 +61,14 @@ public struct GroundTag : IComponentData
 }
 
 /// <summary>
+/// XZ 平面の移動で侵入できない static obstacle のタグ。
+/// </summary>
+public struct StaticObstacleTag : IComponentData
+{
+
+}
+
+/// <summary>
 /// 接地判定に使う SensorCollider の SphereCollider 情報。
 /// </summary>
 public struct GroundSensor : IComponentData

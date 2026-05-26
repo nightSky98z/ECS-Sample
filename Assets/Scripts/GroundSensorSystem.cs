@@ -9,6 +9,7 @@ using Unity.Transforms;
 /// SensorCollider の設定と CollisionWorld で接地状態を更新する。
 /// </summary>
 [UpdateAfter(typeof(MovementSystem))]
+[UpdateAfter(typeof(StaticObstacleCollisionSystem))]
 public partial struct GroundSensorSystem : ISystem
 {
     private ComponentLookup<GroundTag> groundLookup;

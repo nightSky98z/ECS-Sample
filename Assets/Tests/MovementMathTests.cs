@@ -233,4 +233,30 @@ public sealed class MovementMathTests
 
         Assert.Less(math.distance(new float3(1f, 0f, 0f), forward), 0.0001f);
     }
+
+    [Test]
+    public void ResolveHorizontalPenetrationPushesOutOnXZAndKeepsY()
+    {
+        var resolvedPosition = StaticObstacleCollisionMath.ResolveHorizontalPenetration(
+            new float3(0.4f, 2f, 0f),
+            new float3(0.4f, 2.5f, 0f),
+            0.5f,
+            new float3(0f, 2.5f, 0f),
+            new float3(1f, 0f, 0f));
+
+        Assert.AreEqual(new float3(0.5f, 2f, 0f), resolvedPosition);
+    }
+
+    [Test]
+    public void ResolveHorizontalPenetrationFallsBackToSurfaceNormal()
+    {
+        var resolvedPosition = StaticObstacleCollisionMath.ResolveHorizontalPenetration(
+            new float3(0f, 2f, 0f),
+            new float3(0f, 2.5f, 0f),
+            0.5f,
+            new float3(0f, 2.5f, 0f),
+            new float3(0f, 0f, 1f));
+
+        Assert.AreEqual(new float3(0f, 2f, 0.5f), resolvedPosition);
+    }
 }
