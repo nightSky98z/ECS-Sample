@@ -71,6 +71,26 @@ public sealed class MapCellTests
     }
 
     [Test]
+    public void MapCellUsesDataFlagsInsteadOfSpawnedMarkerComponents()
+    {
+        var mapCell = new MapCell
+        {
+            LocalStaticMeshSpawned = 0,
+            MonstersSpawned = 0
+        };
+        var scriptsText = File.ReadAllText("Assets/Scripts/MapCellAuthoring.cs") +
+                          File.ReadAllText("Assets/Scripts/PCGStaticMeshLocalSpawnSystem.cs") +
+                          File.ReadAllText("Assets/Scripts/MonsterSpawnDirectorAuthoring.cs") +
+                          File.ReadAllText("Assets/Scripts/MapNavAuthoring.cs");
+
+        Assert.AreEqual(0, mapCell.LocalStaticMeshSpawned);
+        Assert.AreEqual(0, mapCell.MonstersSpawned);
+        Assert.IsFalse(scriptsText.Contains("PCGStaticMeshLocalSpawned"));
+        Assert.IsFalse(scriptsText.Contains("MapCellMonsterSpawned"));
+        Assert.IsFalse(scriptsText.Contains("MapNavBuildRequest"));
+    }
+
+    [Test]
     public void DebugSubSceneMapCellAuthoringHasCellPrefabAssigned()
     {
         var sceneText = File.ReadAllText("Assets/Scenes/SubScenes/SubScene_Sample.unity");

@@ -30,6 +30,17 @@ public sealed class SpawnRequestTests
     }
 
     [Test]
+    public void SpawnRequestIsBufferElementNotOneShotRequestEntity()
+    {
+        var spawnSystemText = File.ReadAllText("Assets/Scripts/EntitySpawnSystem.cs");
+
+        Assert.IsTrue(typeof(IBufferElementData).IsAssignableFrom(typeof(SpawnRequest)));
+        Assert.IsFalse(typeof(IComponentData).IsAssignableFrom(typeof(SpawnRequest)));
+        Assert.IsFalse(spawnSystemText.Contains("DestroyEntity(request"));
+        Assert.IsTrue(spawnSystemText.Contains("requests.Clear()"));
+    }
+
+    [Test]
     public void SpawnedEntityMarkerIsNotPartOfTheSpawnProtocol()
     {
         var markerType = typeof(SpawnRequest).Assembly.GetType("SpawnEntityComponent");

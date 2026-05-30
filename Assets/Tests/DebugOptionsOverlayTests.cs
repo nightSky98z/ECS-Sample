@@ -1,4 +1,5 @@
 using NUnit.Framework;
+using System.IO;
 using UnityEngine;
 
 public sealed class DebugOptionsOverlayTests
@@ -40,5 +41,99 @@ public sealed class DebugOptionsOverlayTests
             16f);
 
         Assert.AreEqual(new Rect(884f, 16f, 300f, 240f), rect);
+    }
+
+    [Test]
+    public void RuntimeDrawerKnowsWhenAnyRuntimeOptionIsEnabled()
+    {
+        Assert.IsFalse(DebugOptionsRuntimeDrawer.HasAnyOptionEnabled(false, false, false));
+        Assert.IsTrue(DebugOptionsRuntimeDrawer.HasAnyOptionEnabled(true, false, false));
+        Assert.IsTrue(DebugOptionsRuntimeDrawer.HasAnyOptionEnabled(false, true, false));
+        Assert.IsTrue(DebugOptionsRuntimeDrawer.HasAnyOptionEnabled(false, false, true));
+    }
+
+    [Test]
+    public void SkillAttackRangeDebugFadeUsesConfiguredDuration()
+    {
+        Assert.AreEqual(1f, SkillAttackRangeDebugMath.CalculateFadeAlpha(0f, 5f));
+        Assert.AreEqual(0.5f, SkillAttackRangeDebugMath.CalculateFadeAlpha(2.5f, 5f));
+        Assert.AreEqual(0f, SkillAttackRangeDebugMath.CalculateFadeAlpha(5f, 5f));
+        Assert.AreEqual(0f, SkillAttackRangeDebugMath.CalculateFadeAlpha(1f, 0f));
+    }
+
+    [Test]
+    public void SkillAttackRangeDebugMathPrunesExpiredEvents()
+    {
+        Assert.IsFalse(SkillAttackRangeDebugMath.IsEventAlive(10f, 16f, 5f));
+        Assert.IsTrue(SkillAttackRangeDebugMath.IsEventAlive(10f, 14.9f, 5f));
+    }
+
+    [Test]
+    public void SkillRangeRendererCalculatesWorldSpaceCirclePoint()
+    {
+        var center = new Unity.Mathematics.float3(10f, 1f, -3f);
+        var point = DebugOptionsRangeRendererMath.CalculateCirclePoint(
+            center,
+            radius: 4f,
+            segmentIndex: 12,
+            segmentCount: 48);
+
+        Assert.AreEqual(10f, point.x, 0.0001f);
+        Assert.AreEqual(1f, point.y, 0.0001f);
+        Assert.AreEqual(1f, point.z, 0.0001f);
+    }
+
+    [Test]
+    public void DebugOptionsExposeRuntimeColliderAndSkillRangeToggles()
+    {
+        var source = File.ReadAllText("Assets/Scripts/DebugOptionsOverlay.cs");
+
+        StringAssert.Contains("Player Collider Wireframe", source);
+        StringAssert.Contains("Skill Target Range", source);
+        StringAssert.Contains("Skill Attack Range", source);
+        StringAssert.Contains("DebugOptionsRuntimeDrawer.Draw", source);
+        StringAssert.Contains("LateUpdate", source);
+    }
+
+    [Test]
+    public void DebugOptionsRuntimeDrawerReadsColliderAndSkillData()
+    {
+        var source = File.ReadAllText("Assets/Scripts/DebugOptionsOverlay.cs");
+
+        StringAssert.Contains("CollisionRadius", source);
+        StringAssert.Contains("GroundSensor", source);
+        StringAssert.Contains("PhysicsCollider", source);
+        StringAssert.Contains("ComponentType.ReadOnly<PlayerTag>()", source);
+        StringAssert.Contains("AttackSkillComponent", source);
+        StringAssert.Contains("CalculateEffectiveTargetRange", source);
+        StringAssert.Contains("SkillAttackRangeDebugEvents", source);
+    }
+
+    [Test]
+    public void DebugOptionsKeepTargetRangePersistentAndAttackRangeAsFadeEvent()
+    {
+        var overlaySource = File.ReadAllText("Assets/Scripts/DebugOptionsOverlay.cs");
+        var skillSource = File.ReadAllText("Assets/Scripts/SkillSystems.cs");
+
+        StringAssert.Contains("AttackRangeFadeSeconds", overlaySource);
+        StringAssert.Contains("LineRenderer", overlaySource);
+        StringAssert.Contains("DrawSkillTargetRanges", overlaySource);
+        StringAssert.Contains("DrawSkillAttackRangeEvents", overlaySource);
+        StringAssert.Contains("SkillAttackRangeDebugEvents.Record", skillSource);
+    }
+
+    [Test]
+    public void DebugOptionsDisposesRuntimeRangeRenderersOnShutdown()
+    {
+        var source = File.ReadAllText("Assets/Scripts/DebugOptionsOverlay.cs");
+
+        StringAssert.Contains("OnDisable", source);
+        StringAssert.Contains("OnDestroy", source);
+        StringAssert.Contains("DebugOptionsRuntimeDrawer.Dispose", source);
+        StringAssert.Contains("DebugOptionsRangeRenderer.DisposeAll", source);
+        StringAssert.Contains("SkillAttackRangeDebugEvents.Clear", source);
+        StringAssert.Contains("playModeStateChanged", source);
+        Assert.IsFalse(source.Contains("DestroyLeakedGameObjects"));
+        Assert.IsFalse(source.Contains("Resources.FindObjectsOfTypeAll<GameObject>"));
     }
 }

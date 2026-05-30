@@ -116,7 +116,7 @@ public sealed class MovementMathTests
     [Test]
     public void SnapToGroundClampsYAndClearsFallingVelocity()
     {
-        var result = MovementMath.SnapToGround(
+        var result = PhysicsMath.SnapToGround(
             new float3(2f, -0.25f, 3f),
             new float3(1f, -4f, 5f),
             0f);
@@ -129,7 +129,7 @@ public sealed class MovementMathTests
     [Test]
     public void SnapToGroundKeepsAirbornePositionAndVelocity()
     {
-        var result = MovementMath.SnapToGround(
+        var result = PhysicsMath.SnapToGround(
             new float3(2f, 5f, 3f),
             new float3(1f, -4f, 5f),
             0f);
@@ -142,7 +142,7 @@ public sealed class MovementMathTests
     [Test]
     public void SnapToGroundFromSensorPlacesSensorBottomOnGround()
     {
-        var result = MovementMath.SnapToGroundFromSensor(
+        var result = PhysicsMath.SnapToGroundFromSensor(
             new float3(0f, 0.62f, 0f),
             new float3(1f, -3f, 2f),
             0.12f,
@@ -158,7 +158,7 @@ public sealed class MovementMathTests
     [Test]
     public void SnapToGroundFromSensorKeepsAirborneEntityAboveSensorSkin()
     {
-        var result = MovementMath.SnapToGroundFromSensor(
+        var result = PhysicsMath.SnapToGroundFromSensor(
             new float3(0f, 0.7f, 0f),
             new float3(1f, -3f, 2f),
             0.2f,
