@@ -27,12 +27,15 @@ public partial struct PCGStaticMeshLocalSpawnSystem : ISystem
         var entityCommandBuffer = new EntityCommandBuffer(Allocator.Temp);
         var physicsColliderMask = physicsColliderQuery.GetEntityQueryMask();
 
-        foreach (var (cellTransform, localInstances, cellEntity) in
-                 SystemAPI.Query<RefRO<LocalTransform>, DynamicBuffer<PCGStaticMeshLocalInstance>>()
-                     .WithAll<MapCell>()
-                     .WithNone<PCGStaticMeshLocalSpawned>()
+        foreach (var (cell, cellTransform, localInstances, cellEntity) in
+                 SystemAPI.Query<RefRW<MapCell>, RefRO<LocalTransform>, DynamicBuffer<PCGStaticMeshLocalInstance>>()
                      .WithEntityAccess())
         {
+            if (cell.ValueRO.LocalStaticMeshSpawned != 0)
+            {
+                continue;
+            }
+
             for (var instanceIndex = 0; instanceIndex < localInstances.Length; instanceIndex++)
             {
                 var localInstance = localInstances[instanceIndex];
@@ -59,7 +62,8 @@ public partial struct PCGStaticMeshLocalSpawnSystem : ISystem
                     new StaticObstacleTag());
             }
 
-            entityCommandBuffer.AddComponent<PCGStaticMeshLocalSpawned>(cellEntity);
+            cell.ValueRW.LocalStaticMeshSpawned = 1;
+            cell.ValueRW.NavBuildDelayFrames = 1;
         }
 
         entityCommandBuffer.Playback(state.EntityManager);

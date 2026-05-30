@@ -37,7 +37,8 @@ public partial struct GroundSensorSystem : ISystem
         var groundHits = new NativeList<DistanceHit>(Allocator.Temp);
 
         foreach (var (transform, velocity, groundSnap, groundSensor) in
-                 SystemAPI.Query<RefRW<LocalTransform>, RefRW<Velocity>, RefRW<GroundSnap>, RefRO<GroundSensor>>())
+                 SystemAPI.Query<RefRW<LocalTransform>, RefRW<Velocity>, RefRW<GroundSnap>, RefRO<GroundSensor>>()
+                     .WithNone<MonsterDestroyVfxState>())
         {
             var transformValue = transform.ValueRO;
             var sensorShape = GroundSensorMath.CalculateWorldShape(
@@ -78,7 +79,7 @@ public partial struct GroundSensorSystem : ISystem
                     continue;
                 }
 
-                var snapResult = MovementMath.SnapToGroundFromSensor(
+                var snapResult = PhysicsMath.SnapToGroundFromSensor(
                     transformValue.Position,
                     velocity.ValueRO.Value,
                     sensorShape.Center.y,

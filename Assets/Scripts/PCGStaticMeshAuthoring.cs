@@ -264,14 +264,6 @@ public struct PCGStaticMeshLocalInstance : IBufferElementData
 }
 
 /// <summary>
-/// PCGStaticMeshLocalSpawnSystem が一度だけ展開済みであることを示すタグ。
-/// </summary>
-public struct PCGStaticMeshLocalSpawned : IComponentData
-{
-
-}
-
-/// <summary>
 /// PCG static mesh の 1 配置分の入力。
 /// </summary>
 public struct PCGStaticMeshPlacementSettings

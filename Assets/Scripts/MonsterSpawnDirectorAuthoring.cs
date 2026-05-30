@@ -2,18 +2,37 @@ using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Transforms;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 /// <summary>
 /// Player 周辺に通常 monster を維持する runtime spawn director の設定。
 /// </summary>
 public struct MonsterSpawnDirectorConfig : IComponentData
 {
-    public int MinSpawnCountPerCell;
-    public int MaxSpawnCountPerCell;
+    public float SpawnIntervalSeconds;
+    public int SpawnCountPerInterval;
+    public int MaxAliveMonsterCount;
+    public int NearbyMonsterTargetCount;
+    public int NearbyMonsterLowThreshold;
+    public float NearbyMonsterRadius;
     public float MinSpawnDistanceFromPlayer;
     public float MaxSpawnDistanceFromPlayer;
-    public float CellSpawnPadding;
+    public float ForwardSpawnBias;
+    public float RecycleDistanceFromPlayer;
+    public float RecycleCheckIntervalSeconds;
+    public int MaxRecycleChecksPerFrame;
     public int WorldSeed;
+}
+
+/// <summary>
+/// ステージ進行度に応じて monster 補充設定を差し替えるデータ。
+/// </summary>
+[InternalBufferCapacity(8)]
+public struct MonsterSpawnStageTuningElement : IBufferElementData
+{
+    public float MinStageProgress;
+    public float SpawnIntervalSeconds;
+    public int SpawnCountPerInterval;
 }
 
 /// <summary>
@@ -27,20 +46,12 @@ public struct MonsterSpawnPrefabElement : IBufferElementData
 }
 
 /// <summary>
-/// Map Cell に対する monster spawn が完了済みであることを示すタグ。
-/// </summary>
-public struct MapCellMonsterSpawned : IComponentData
-{
-
-}
-
-/// <summary>
 /// 通常 monster を player 周辺だけに維持する Authoring。
 /// </summary>
 public sealed class MonsterSpawnDirectorAuthoring : MonoBehaviour
 {
     [SerializeField]
-    [Tooltip("Monster prefab candidates instantiated for newly loaded map cells. Entries with weight 0 or less are ignored.")]
+    [Tooltip("Monster prefab candidates instantiated by timed spawn. Entries with weight 0 or less are ignored.")]
     private MonsterSpawnPrefabEntry[] MonsterPrefabs = new MonsterSpawnPrefabEntry[0];
 
     [SerializeField]
@@ -49,19 +60,34 @@ public sealed class MonsterSpawnDirectorAuthoring : MonoBehaviour
     private GameObject MonsterPrefab;
 
     [SerializeField]
-    [HideInInspector]
-    [Tooltip("Legacy fixed spawn count. Use MinSpawnCountPerCell and MaxSpawnCountPerCell instead.")]
-    private int SpawnCountPerCell = -1;
+    [Min(0f)]
+    [Tooltip("Seconds between timed monster spawn batches. 0 spawns every frame.")]
+    private float SpawnIntervalSeconds = 1f;
 
     [SerializeField]
     [Min(0)]
-    [Tooltip("Minimum monster count spawned once for each newly loaded map cell.")]
-    private int MinSpawnCountPerCell = 4;
+    [Tooltip("Monster count spawned by one timed spawn batch. 0 disables timed spawning.")]
+    private int SpawnCountPerInterval = 8;
 
     [SerializeField]
     [Min(0)]
-    [Tooltip("Maximum monster count spawned once for each newly loaded map cell. 0 disables cell monster spawning.")]
-    private int MaxSpawnCountPerCell = 8;
+    [Tooltip("Maximum alive normal monsters controlled by this director. 0 disables timed spawning.")]
+    private int MaxAliveMonsterCount = 400;
+
+    [SerializeField]
+    [Min(0)]
+    [Tooltip("Desired normal monster count around the player. Used to refill combat density after the player escapes.")]
+    private int NearbyMonsterTargetCount = 80;
+
+    [SerializeField]
+    [Min(0)]
+    [Tooltip("When nearby monster count is below this value, distant normal monsters are recycled near the player.")]
+    private int NearbyMonsterLowThreshold = 50;
+
+    [SerializeField]
+    [Min(0f)]
+    [Tooltip("XZ radius used to count nearby normal monsters. Keep this at least as large as Max Spawn Distance.")]
+    private float NearbyMonsterRadius = 48f;
 
     [SerializeField]
     [Min(0f)]
@@ -74,29 +100,63 @@ public sealed class MonsterSpawnDirectorAuthoring : MonoBehaviour
     private float MaxSpawnDistanceFromPlayer = 42f;
 
     [SerializeField]
-    [Tooltip("Distance from each cell edge where monsters are not spawned.")]
-    private float CellSpawnPadding = 8f;
+    [Range(0f, 1f)]
+    [Tooltip("0 means fully random around player. 1 means spawn only in the player's forward half-space.")]
+    private float ForwardSpawnBias = 0.65f;
 
     [SerializeField]
-    [Tooltip("World seed used to create deterministic monster placements per cell.")]
+    [Min(0f)]
+    [FormerlySerializedAs("DespawnDistanceFromPlayer")]
+    [Tooltip("Monsters farther than this XZ distance from the player are recycled to a new off-screen position. 0 disables distance recycle.")]
+    private float RecycleDistanceFromPlayer = 96f;
+
+    [SerializeField]
+    [Min(0f)]
+    [Tooltip("Seconds between far monster recycle scans. 0 checks every frame.")]
+    private float RecycleCheckIntervalSeconds = 0.2f;
+
+    [SerializeField]
+    [Min(1)]
+    [Tooltip("Maximum monsters inspected by one recycle scan. Keep this small for stable frame time.")]
+    private int MaxRecycleChecksPerFrame = 100;
+
+    [SerializeField]
+    [Tooltip("World seed used to create deterministic timed monster placements.")]
     private int RandomSeed = 1;
+
+    [SerializeField]
+    [Tooltip("Runtime timed spawn settings chosen by stage progress. The highest reached MinStageProgress wins.")]
+    private MonsterSpawnStageTuningEntry[] StageTunings = new MonsterSpawnStageTuningEntry[0];
 
     private void OnValidate()
     {
         MigrateLegacyMonsterPrefab();
-        MigrateLegacySpawnCount();
         NormalizeMonsterPrefabWeights();
-        MonsterSpawnDirectorUtility.NormalizeCellSpawnCountRange(
-            MinSpawnCountPerCell,
-            MaxSpawnCountPerCell,
-            out MinSpawnCountPerCell,
-            out MaxSpawnCountPerCell);
+        NormalizeStageTunings();
+        SpawnIntervalSeconds =
+            MonsterSpawnDirectorUtility.NormalizeSpawnInterval(SpawnIntervalSeconds);
+        SpawnCountPerInterval = MonsterSpawnDirectorUtility.NormalizeSpawnCount(SpawnCountPerInterval);
+        MaxAliveMonsterCount = MonsterSpawnDirectorUtility.NormalizeSpawnCount(MaxAliveMonsterCount);
         MonsterSpawnDirectorUtility.NormalizeSpawnDistanceRange(
             MinSpawnDistanceFromPlayer,
             MaxSpawnDistanceFromPlayer,
             out MinSpawnDistanceFromPlayer,
             out MaxSpawnDistanceFromPlayer);
-        CellSpawnPadding = math.max(0f, math.abs(CellSpawnPadding));
+        NearbyMonsterTargetCount = MonsterSpawnDirectorUtility.NormalizeSpawnCount(NearbyMonsterTargetCount);
+        NearbyMonsterLowThreshold = MonsterSpawnDirectorUtility.NormalizeNearbyLowThreshold(
+            NearbyMonsterLowThreshold,
+            NearbyMonsterTargetCount);
+        NearbyMonsterRadius = MonsterSpawnDirectorUtility.NormalizeNearbyMonsterRadius(
+            NearbyMonsterRadius,
+            MaxSpawnDistanceFromPlayer);
+        ForwardSpawnBias = MonsterSpawnDirectorUtility.NormalizeForwardSpawnBias(ForwardSpawnBias);
+        RecycleDistanceFromPlayer = MonsterSpawnDirectorUtility.NormalizeRecycleDistance(
+            RecycleDistanceFromPlayer,
+            MaxSpawnDistanceFromPlayer);
+        RecycleCheckIntervalSeconds =
+            MonsterSpawnDirectorUtility.NormalizeSpawnInterval(RecycleCheckIntervalSeconds);
+        MaxRecycleChecksPerFrame =
+            MonsterSpawnDirectorUtility.NormalizeRecycleChecksPerFrame(MaxRecycleChecksPerFrame);
         RandomSeed = (int)PCGStaticMeshUtility.NormalizeSeed(RandomSeed);
     }
 
@@ -117,18 +177,6 @@ public sealed class MonsterSpawnDirectorAuthoring : MonoBehaviour
         };
     }
 
-    private void MigrateLegacySpawnCount()
-    {
-        if (SpawnCountPerCell < 0)
-        {
-            return;
-        }
-
-        MinSpawnCountPerCell = SpawnCountPerCell;
-        MaxSpawnCountPerCell = SpawnCountPerCell;
-        SpawnCountPerCell = -1;
-    }
-
     private void NormalizeMonsterPrefabWeights()
     {
         if (MonsterPrefabs == null)
@@ -142,6 +190,24 @@ public sealed class MonsterSpawnDirectorAuthoring : MonoBehaviour
 
             entry.Weight = MapCellUtility.NormalizeWeight(entry.Weight);
             MonsterPrefabs[prefabIndex] = entry;
+        }
+    }
+
+    private void NormalizeStageTunings()
+    {
+        if (StageTunings == null)
+        {
+            return;
+        }
+
+        for (var tuningIndex = 0; tuningIndex < StageTunings.Length; tuningIndex++)
+        {
+            var tuning = StageTunings[tuningIndex];
+
+            tuning.MinStageProgress = MonsterSpawnDirectorUtility.NormalizeStageProgress(tuning.MinStageProgress);
+            tuning.SpawnIntervalSeconds = MonsterSpawnDirectorUtility.NormalizeSpawnInterval(tuning.SpawnIntervalSeconds);
+            tuning.SpawnCountPerInterval = MonsterSpawnDirectorUtility.NormalizeSpawnCount(tuning.SpawnCountPerInterval);
+            StageTunings[tuningIndex] = tuning;
         }
     }
 
@@ -167,25 +233,6 @@ public sealed class MonsterSpawnDirectorAuthoring : MonoBehaviour
         };
     }
 
-    private void GetEffectiveSpawnCountRange(out int minSpawnCount, out int maxSpawnCount)
-    {
-        if (SpawnCountPerCell >= 0)
-        {
-            MonsterSpawnDirectorUtility.NormalizeCellSpawnCountRange(
-                SpawnCountPerCell,
-                SpawnCountPerCell,
-                out minSpawnCount,
-                out maxSpawnCount);
-            return;
-        }
-
-        MonsterSpawnDirectorUtility.NormalizeCellSpawnCountRange(
-            MinSpawnCountPerCell,
-            MaxSpawnCountPerCell,
-            out minSpawnCount,
-            out maxSpawnCount);
-    }
-
     private sealed class Baker : Baker<MonsterSpawnDirectorAuthoring>
     {
         public override void Bake(MonsterSpawnDirectorAuthoring authoring)
@@ -199,17 +246,26 @@ public sealed class MonsterSpawnDirectorAuthoring : MonoBehaviour
 
             var entity = GetEntity(TransformUsageFlags.None);
 
-            authoring.GetEffectiveSpawnCountRange(
-                out var minSpawnCount,
-                out var maxSpawnCount);
-
             AddComponent(entity, new MonsterSpawnDirectorConfig
             {
-                MinSpawnCountPerCell = minSpawnCount,
-                MaxSpawnCountPerCell = maxSpawnCount,
+                SpawnIntervalSeconds = authoring.SpawnIntervalSeconds,
+                SpawnCountPerInterval = authoring.SpawnCountPerInterval,
+                MaxAliveMonsterCount = authoring.MaxAliveMonsterCount,
+                NearbyMonsterTargetCount = authoring.NearbyMonsterTargetCount,
+                NearbyMonsterLowThreshold = MonsterSpawnDirectorUtility.NormalizeNearbyLowThreshold(
+                    authoring.NearbyMonsterLowThreshold,
+                    authoring.NearbyMonsterTargetCount),
+                NearbyMonsterRadius = MonsterSpawnDirectorUtility.NormalizeNearbyMonsterRadius(
+                    authoring.NearbyMonsterRadius,
+                    authoring.MaxSpawnDistanceFromPlayer),
                 MinSpawnDistanceFromPlayer = authoring.MinSpawnDistanceFromPlayer,
                 MaxSpawnDistanceFromPlayer = authoring.MaxSpawnDistanceFromPlayer,
-                CellSpawnPadding = authoring.CellSpawnPadding,
+                ForwardSpawnBias = MonsterSpawnDirectorUtility.NormalizeForwardSpawnBias(authoring.ForwardSpawnBias),
+                RecycleDistanceFromPlayer = MonsterSpawnDirectorUtility.NormalizeRecycleDistance(
+                    authoring.RecycleDistanceFromPlayer,
+                    authoring.MaxSpawnDistanceFromPlayer),
+                RecycleCheckIntervalSeconds = authoring.RecycleCheckIntervalSeconds,
+                MaxRecycleChecksPerFrame = authoring.MaxRecycleChecksPerFrame,
                 WorldSeed = authoring.RandomSeed
             });
 
@@ -231,6 +287,25 @@ public sealed class MonsterSpawnDirectorAuthoring : MonoBehaviour
                     Weight = weight
                 });
             }
+
+            var stageTuningBuffer = AddBuffer<MonsterSpawnStageTuningElement>(entity);
+
+            if (authoring.StageTunings == null)
+            {
+                return;
+            }
+
+            for (var tuningIndex = 0; tuningIndex < authoring.StageTunings.Length; tuningIndex++)
+            {
+                var tuning = authoring.StageTunings[tuningIndex];
+
+                stageTuningBuffer.Add(new MonsterSpawnStageTuningElement
+                {
+                    MinStageProgress = MonsterSpawnDirectorUtility.NormalizeStageProgress(tuning.MinStageProgress),
+                    SpawnIntervalSeconds = MonsterSpawnDirectorUtility.NormalizeSpawnInterval(tuning.SpawnIntervalSeconds),
+                    SpawnCountPerInterval = MonsterSpawnDirectorUtility.NormalizeSpawnCount(tuning.SpawnCountPerInterval)
+                });
+            }
         }
     }
 }
@@ -247,6 +322,25 @@ public struct MonsterSpawnPrefabEntry
     [Min(0f)]
     [Tooltip("Relative selection weight. 0 disables this candidate.")]
     public float Weight;
+}
+
+/// <summary>
+/// Inspector で編集するステージ進行度別の timed monster spawn 設定。
+/// </summary>
+[System.Serializable]
+public struct MonsterSpawnStageTuningEntry
+{
+    [Min(0f)]
+    [Tooltip("This setting is used when StageSpawnProgress is greater than or equal to this value.")]
+    public float MinStageProgress;
+
+    [Min(0f)]
+    [Tooltip("Seconds between timed monster spawn batches.")]
+    public float SpawnIntervalSeconds;
+
+    [Min(0)]
+    [Tooltip("Monster count spawned by one timed spawn batch.")]
+    public int SpawnCountPerInterval;
 }
 
 /// <summary>
@@ -271,25 +365,6 @@ public static class MonsterSpawnDirectorUtility
             playerPosition.x + direction.x * radius,
             playerPosition.y,
             playerPosition.z + direction.y * radius);
-    }
-
-    /// <summary>
-    /// Map Cell 内の spawn 可能範囲に 1 点を生成する。
-    /// </summary>
-    public static float3 CalculateCellSpawnPosition(
-        float3 cellCenter,
-        float cellSize,
-        float padding,
-        ref Unity.Mathematics.Random random)
-    {
-        var safeCellSize = math.max(0.1f, math.abs(cellSize));
-        var safePadding = math.max(0f, math.abs(padding));
-        var halfExtent = math.max(0f, safeCellSize * 0.5f - safePadding);
-        var offset = random.NextFloat2(
-            new float2(-halfExtent, -halfExtent),
-            new float2(halfExtent, halfExtent));
-
-        return cellCenter + new float3(offset.x, 0f, offset.y);
     }
 
     /// <summary>
@@ -337,6 +412,47 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
+    /// Player 周囲の XZ ring 内に、必要なら player の進行方向へ偏らせて 1 点を生成する。
+    /// </summary>
+    public static float3 CalculateBiasedPlayerRingSpawnPosition(
+        float3 playerPosition,
+        float groundY,
+        float minDistance,
+        float maxDistance,
+        float2 preferredDirection,
+        float forwardBias,
+        ref Unity.Mathematics.Random random)
+    {
+        NormalizeSpawnDistanceRange(
+            minDistance,
+            maxDistance,
+            out var normalizedMinDistance,
+            out var normalizedMaxDistance);
+
+        var normalizedBias = NormalizeForwardSpawnBias(forwardBias);
+        var direction = math.normalizesafe(preferredDirection);
+        var angle = random.NextFloat(0f, math.PI * 2f);
+
+        if (normalizedBias > 0f &&
+            math.lengthsq(direction) > 0f &&
+            random.NextFloat() < normalizedBias)
+        {
+            var forwardAngle = math.atan2(direction.y, direction.x);
+            angle = forwardAngle + random.NextFloat(-math.PI * 0.5f, math.PI * 0.5f);
+        }
+
+        var minDistanceSq = normalizedMinDistance * normalizedMinDistance;
+        var maxDistanceSq = normalizedMaxDistance * normalizedMaxDistance;
+        var radius = math.sqrt(random.NextFloat(minDistanceSq, maxDistanceSq));
+        var spawnDirection = new float2(math.cos(angle), math.sin(angle));
+
+        return new float3(
+            playerPosition.x + spawnDirection.x * radius,
+            groundY,
+            playerPosition.z + spawnDirection.y * radius);
+    }
+
+    /// <summary>
     /// GroundSensor の下端が地面に触れる root 位置を返す。
     /// </summary>
     public static float3 CalculateGroundedSpawnPosition(
@@ -355,41 +471,255 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// Cell ごとの spawn count 範囲を非負かつ min <= max に正規化する。
+    /// ステージ進行度を非負値へ正規化する。
     /// </summary>
-    public static void NormalizeCellSpawnCountRange(
-        int minCount,
-        int maxCount,
-        out int normalizedMinCount,
-        out int normalizedMaxCount)
+    public static float NormalizeStageProgress(float progress)
     {
-        var safeMinCount = math.max(0, minCount);
-        var safeMaxCount = math.max(0, maxCount);
-
-        normalizedMinCount = math.min(safeMinCount, safeMaxCount);
-        normalizedMaxCount = math.max(safeMinCount, safeMaxCount);
+        return math.max(0f, progress);
     }
 
     /// <summary>
-    /// Cell ごとの spawn count を inclusive range から 1 つ選ぶ。
+    /// timed spawn 間隔を非負値へ正規化する。
     /// </summary>
-    public static int CalculateCellSpawnCount(
-        int minCount,
-        int maxCount,
-        ref Unity.Mathematics.Random random)
+    public static float NormalizeSpawnInterval(float seconds)
     {
-        NormalizeCellSpawnCountRange(
-            minCount,
-            maxCount,
-            out var normalizedMinCount,
-            out var normalizedMaxCount);
+        return math.max(0f, math.abs(seconds));
+    }
 
-        if (normalizedMaxCount <= 0 || normalizedMinCount == normalizedMaxCount)
+    /// <summary>
+    /// timed spawn 数を非負値へ正規化する。
+    /// </summary>
+    public static int NormalizeSpawnCount(int spawnCount)
+    {
+        return math.max(0, spawnCount);
+    }
+
+    /// <summary>
+    /// 1 回の recycle scan で調べる monster 数を 1 以上へ正規化する。
+    /// </summary>
+    public static int NormalizeRecycleChecksPerFrame(int checkCount)
+    {
+        return math.max(1, checkCount);
+    }
+
+    /// <summary>
+    /// 近距離密度の低下判定数を target 以下へ正規化する。
+    /// </summary>
+    public static int NormalizeNearbyLowThreshold(int lowThreshold, int targetCount)
+    {
+        var normalizedTargetCount = NormalizeSpawnCount(targetCount);
+
+        if (normalizedTargetCount <= 0)
         {
-            return normalizedMinCount;
+            return 0;
         }
 
-        return random.NextInt(normalizedMinCount, normalizedMaxCount + 1);
+        return math.clamp(NormalizeSpawnCount(lowThreshold), 0, normalizedTargetCount);
+    }
+
+    /// <summary>
+    /// 近距離密度の半径を spawn ring を含む値へ正規化する。
+    /// </summary>
+    public static float NormalizeNearbyMonsterRadius(float nearbyRadius, float maxSpawnDistanceFromPlayer)
+    {
+        var safeNearbyRadius = math.max(0f, math.abs(nearbyRadius));
+        var safeMaxSpawnDistance = math.max(0f, math.abs(maxSpawnDistanceFromPlayer));
+
+        if (safeNearbyRadius <= 0f)
+        {
+            return 0f;
+        }
+
+        return math.max(safeNearbyRadius, safeMaxSpawnDistance);
+    }
+
+    /// <summary>
+    /// player 進行方向への spawn 偏りを 0..1 に収める。
+    /// </summary>
+    public static float NormalizeForwardSpawnBias(float forwardBias)
+    {
+        return math.clamp(forwardBias, 0f, 1f);
+    }
+
+    /// <summary>
+    /// recycle 距離を spawn ring の外側に保つ。
+    /// </summary>
+    public static float NormalizeRecycleDistance(float recycleDistance, float maxSpawnDistanceFromPlayer)
+    {
+        var safeRecycleDistance = math.max(0f, math.abs(recycleDistance));
+        var safeMaxSpawnDistance = math.max(0f, math.abs(maxSpawnDistanceFromPlayer));
+
+        if (safeRecycleDistance <= 0f)
+        {
+            return 0f;
+        }
+
+        return math.max(safeRecycleDistance, safeMaxSpawnDistance + 0.01f);
+    }
+
+    /// <summary>
+    /// 現在の alive 数と上限から、今回実際に spawn してよい数を返す。
+    /// </summary>
+    public static int CalculateSpawnCountUnderLimit(
+        int requestedSpawnCount,
+        int maxAliveMonsterCount,
+        int aliveMonsterCount)
+    {
+        var normalizedRequestedSpawnCount = NormalizeSpawnCount(requestedSpawnCount);
+        var normalizedMaxAliveMonsterCount = NormalizeSpawnCount(maxAliveMonsterCount);
+        var normalizedAliveMonsterCount = NormalizeSpawnCount(aliveMonsterCount);
+
+        if (normalizedRequestedSpawnCount <= 0 || normalizedMaxAliveMonsterCount <= 0)
+        {
+            return 0;
+        }
+
+        return math.min(
+            normalizedRequestedSpawnCount,
+            math.max(0, normalizedMaxAliveMonsterCount - normalizedAliveMonsterCount));
+    }
+
+    /// <summary>
+    /// 近距離 monster 密度が低い場合、通常 batch より多く補充する数を返す。
+    /// </summary>
+    public static int CalculateSpawnCountForNearbyDensity(
+        int spawnCountPerInterval,
+        int maxAliveMonsterCount,
+        int aliveMonsterCount,
+        int nearbyMonsterCount,
+        int nearbyLowThreshold,
+        int nearbyTargetCount)
+    {
+        var normalizedTargetCount = NormalizeSpawnCount(nearbyTargetCount);
+        var normalizedLowThreshold = NormalizeNearbyLowThreshold(
+            nearbyLowThreshold,
+            normalizedTargetCount);
+        var normalizedNearbyCount = NormalizeSpawnCount(nearbyMonsterCount);
+        var requestedSpawnCount = NormalizeSpawnCount(spawnCountPerInterval);
+
+        if (normalizedTargetCount > 0 &&
+            normalizedLowThreshold > 0 &&
+            normalizedNearbyCount < normalizedLowThreshold)
+        {
+            requestedSpawnCount = math.max(
+                requestedSpawnCount,
+                normalizedTargetCount - normalizedNearbyCount);
+        }
+
+        return CalculateSpawnCountUnderLimit(
+            requestedSpawnCount,
+            maxAliveMonsterCount,
+            aliveMonsterCount);
+    }
+
+    /// <summary>
+    /// 近距離 density が低い時に recycle で補うべき数を返す。
+    /// </summary>
+    public static int CalculateNearbyDensityDeficit(
+        int nearbyMonsterCount,
+        int nearbyLowThreshold,
+        int nearbyTargetCount)
+    {
+        var normalizedTargetCount = NormalizeSpawnCount(nearbyTargetCount);
+        var normalizedLowThreshold = NormalizeNearbyLowThreshold(
+            nearbyLowThreshold,
+            normalizedTargetCount);
+        var normalizedNearbyCount = NormalizeSpawnCount(nearbyMonsterCount);
+
+        if (normalizedTargetCount <= 0 ||
+            normalizedLowThreshold <= 0 ||
+            normalizedNearbyCount >= normalizedLowThreshold)
+        {
+            return 0;
+        }
+
+        return math.max(0, normalizedTargetCount - normalizedNearbyCount);
+    }
+
+    /// <summary>
+    /// timed spawn を今回実行するかどうかを返す。
+    /// </summary>
+    public static bool ShouldSpawnByInterval(float elapsedSeconds, float intervalSeconds)
+    {
+        var normalizedIntervalSeconds = NormalizeSpawnInterval(intervalSeconds);
+
+        return normalizedIntervalSeconds <= 0f || elapsedSeconds >= normalizedIntervalSeconds;
+    }
+
+    /// <summary>
+    /// Monster が player からの recycle 距離を超えているかどうかを返す。
+    /// </summary>
+    public static bool ShouldRecycleByDistance(
+        float3 monsterPosition,
+        float3 playerPosition,
+        float recycleDistance)
+    {
+        var normalizedRecycleDistance = math.max(0f, math.abs(recycleDistance));
+
+        if (normalizedRecycleDistance <= 0f)
+        {
+            return false;
+        }
+
+        var delta = monsterPosition.xz - playerPosition.xz;
+
+        return math.lengthsq(delta) > normalizedRecycleDistance * normalizedRecycleDistance;
+    }
+
+    /// <summary>
+    /// 現在のステージ進行度で有効な timed monster spawn 設定を選ぶ。
+    /// </summary>
+    public static void SelectTimedSpawnSettings(
+        DynamicBuffer<MonsterSpawnStageTuningElement> stageTunings,
+        float stageProgress,
+        float baseSpawnIntervalSeconds,
+        int baseSpawnCountPerInterval,
+        out float spawnIntervalSeconds,
+        out int spawnCountPerInterval)
+    {
+        var normalizedStageProgress = NormalizeStageProgress(stageProgress);
+        var selectedMinStageProgress = -1f;
+
+        spawnIntervalSeconds = NormalizeSpawnInterval(baseSpawnIntervalSeconds);
+        spawnCountPerInterval = NormalizeSpawnCount(baseSpawnCountPerInterval);
+
+        for (var tuningIndex = 0; tuningIndex < stageTunings.Length; tuningIndex++)
+        {
+            var tuning = stageTunings[tuningIndex];
+            var tuningMinStageProgress = NormalizeStageProgress(tuning.MinStageProgress);
+
+            if (tuningMinStageProgress > normalizedStageProgress ||
+                tuningMinStageProgress < selectedMinStageProgress)
+            {
+                continue;
+            }
+
+            selectedMinStageProgress = tuningMinStageProgress;
+            spawnIntervalSeconds = NormalizeSpawnInterval(tuning.SpawnIntervalSeconds);
+            spawnCountPerInterval = NormalizeSpawnCount(tuning.SpawnCountPerInterval);
+        }
+    }
+
+    /// <summary>
+    /// timed spawn 用の非ゼロ seed を作る。
+    /// </summary>
+    public static uint CreateTimedSpawnSeed(
+        int worldSeed,
+        float3 playerPosition,
+        uint sequence)
+    {
+        var hash = math.hash(new uint4(
+            (uint)worldSeed,
+            (uint)math.floor(playerPosition.x),
+            (uint)math.floor(playerPosition.z),
+            sequence));
+
+        if (hash == 0u)
+        {
+            return 1u;
+        }
+
+        return hash;
     }
 
     /// <summary>
@@ -474,126 +804,641 @@ public static class MonsterSpawnDirectorUtility
 }
 
 /// <summary>
-/// 新しく load された Map Cell に通常 monster を配置する。
+/// 一定時間ごとに player 周辺へ通常 monster を配置し、遠すぎる monster を再利用する。
 /// </summary>
-[UpdateAfter(typeof(MapCellSystem))]
+[UpdateAfter(typeof(MonsterDestroySystem))]
 [UpdateBefore(typeof(MonsterSimpleAiSystem))]
 public partial struct MonsterSpawnDirectorSystem : ISystem
 {
+    private float spawnElapsedSeconds;
+    private float recycleElapsedSeconds;
+    private int recycleScanCursor;
+    private int densityRecycleScanCursor;
+    private bool recycleScanActive;
+    private uint spawnSequence;
+
     public void OnCreate(ref SystemState state)
     {
         state.RequireForUpdate<MonsterSpawnDirectorConfig>();
-        state.RequireForUpdate<MapCell>();
         state.RequireForUpdate<PlayerTag>();
     }
 
     public void OnUpdate(ref SystemState state)
     {
-        if (!TryGetPlayerPosition(ref state, out var playerPosition))
+        if (!TryGetPlayer(ref state, out var playerEntity, out var playerPosition))
         {
             return;
         }
 
+        var stageProgress = GetStageSpawnProgress(ref state);
+        var groundY = GetSpawnGroundY(ref state, playerEntity, playerPosition);
+        var preferredSpawnDirection = GetPreferredSpawnDirection(ref state, playerEntity);
+        var isStageCleared = IsAnyStageCleared(ref state);
         var entityCommandBuffer = new EntityCommandBuffer(Unity.Collections.Allocator.Temp);
+        var hasSpawnCommands = false;
 
-        foreach (var (config, monsterPrefabs) in
-                 SystemAPI.Query<RefRO<MonsterSpawnDirectorConfig>, DynamicBuffer<MonsterSpawnPrefabElement>>())
+        foreach (var (config, monsterPrefabs, stageTunings) in
+                 SystemAPI.Query<
+                     RefRO<MonsterSpawnDirectorConfig>,
+                     DynamicBuffer<MonsterSpawnPrefabElement>,
+                     DynamicBuffer<MonsterSpawnStageTuningElement>>())
         {
-            if (config.ValueRO.MaxSpawnCountPerCell <= 0 ||
-                monsterPrefabs.Length == 0)
+            if (recycleScanActive ||
+                ShouldRunRecycleScan(ref state, config.ValueRO.RecycleCheckIntervalSeconds))
+            {
+                recycleScanActive = true;
+                recycleScanActive = !RecycleFarMonsters(
+                    ref state,
+                    config.ValueRO,
+                    playerPosition,
+                    groundY);
+            }
+
+            if (monsterPrefabs.Length == 0)
             {
                 continue;
             }
 
-            SpawnMonstersForNewCells(
+            if (isStageCleared)
+            {
+                continue;
+            }
+
+            MonsterSpawnDirectorUtility.SelectTimedSpawnSettings(
+                stageTunings,
+                stageProgress,
+                config.ValueRO.SpawnIntervalSeconds,
+                config.ValueRO.SpawnCountPerInterval,
+                out var spawnIntervalSeconds,
+                out var spawnCountPerInterval);
+
+            if (!ShouldRunTimedSpawn(ref state, spawnIntervalSeconds) ||
+                spawnCountPerInterval <= 0)
+            {
+                continue;
+            }
+
+            var densityStats = CountAliveMonsterDensity(
+                ref state,
+                playerPosition,
+                config.ValueRO.NearbyMonsterRadius);
+            var nearbyDensityDeficit = MonsterSpawnDirectorUtility.CalculateNearbyDensityDeficit(
+                densityStats.Nearby,
+                config.ValueRO.NearbyMonsterLowThreshold,
+                config.ValueRO.NearbyMonsterTargetCount);
+            var requestedSpawnCount = spawnCountPerInterval;
+
+            if (nearbyDensityDeficit > 0)
+            {
+                var recycledCount = RecycleDistantMonstersForNearbyDensity(
+                    ref state,
+                    config.ValueRO,
+                    playerPosition,
+                    preferredSpawnDirection,
+                    groundY,
+                    nearbyDensityDeficit);
+
+                densityStats.Nearby += recycledCount;
+                requestedSpawnCount = math.max(0, nearbyDensityDeficit - recycledCount);
+            }
+
+            var allowedSpawnCount = MonsterSpawnDirectorUtility.CalculateSpawnCountForNearbyDensity(
+                requestedSpawnCount,
+                config.ValueRO.MaxAliveMonsterCount,
+                densityStats.Alive,
+                densityStats.Nearby,
+                config.ValueRO.NearbyMonsterLowThreshold,
+                config.ValueRO.NearbyMonsterTargetCount);
+
+            if (allowedSpawnCount <= 0)
+            {
+                continue;
+            }
+
+            SpawnMonstersAroundPlayer(
                 ref state,
                 ref entityCommandBuffer,
                 config.ValueRO,
                 monsterPrefabs,
-                playerPosition);
+                playerPosition,
+                preferredSpawnDirection,
+                groundY,
+                allowedSpawnCount);
+
+            hasSpawnCommands = true;
         }
 
-        entityCommandBuffer.Playback(state.EntityManager);
+        if (hasSpawnCommands)
+        {
+            entityCommandBuffer.Playback(state.EntityManager);
+        }
+
         entityCommandBuffer.Dispose();
     }
 
-    private bool TryGetPlayerPosition(ref SystemState state, out float3 playerPosition)
+    private struct MonsterDensityStats
     {
-        foreach (var transform in
+        public int Alive;
+        public int Nearby;
+    }
+
+    private bool TryGetPlayer(
+        ref SystemState state,
+        out Entity playerEntity,
+        out float3 playerPosition)
+    {
+        foreach (var (transform, entity) in
                  SystemAPI.Query<RefRO<LocalTransform>>()
-                     .WithAll<PlayerTag>())
+                     .WithAll<PlayerTag>()
+                     .WithEntityAccess())
         {
+            playerEntity = entity;
             playerPosition = transform.ValueRO.Position;
             return true;
         }
 
+        playerEntity = Entity.Null;
         playerPosition = float3.zero;
         return false;
     }
 
-    private void SpawnMonstersForNewCells(
+    private float GetStageSpawnProgress(ref SystemState state)
+    {
+        foreach (var progress in SystemAPI.Query<RefRO<StageSpawnProgress>>())
+        {
+            return progress.ValueRO.Value;
+        }
+
+        return 0f;
+    }
+
+    private bool IsAnyStageCleared(ref SystemState state)
+    {
+        foreach (var clearState in SystemAPI.Query<RefRO<StageClearState>>())
+        {
+            if (clearState.ValueRO.IsCleared != 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static float GetSpawnGroundY(
+        ref SystemState state,
+        Entity playerEntity,
+        float3 playerPosition)
+    {
+        if (playerEntity != Entity.Null &&
+            state.EntityManager.HasComponent<GroundSnap>(playerEntity))
+        {
+            return state.EntityManager.GetComponentData<GroundSnap>(playerEntity).GroundY;
+        }
+
+        return playerPosition.y;
+    }
+
+    private static float2 GetPreferredSpawnDirection(ref SystemState state, Entity playerEntity)
+    {
+        if (playerEntity != Entity.Null &&
+            state.EntityManager.HasComponent<Velocity>(playerEntity))
+        {
+            var velocity = state.EntityManager.GetComponentData<Velocity>(playerEntity).Value.xz;
+
+            if (math.lengthsq(velocity) > 0.0001f)
+            {
+                return math.normalize(velocity);
+            }
+        }
+
+        if (playerEntity != Entity.Null &&
+            state.EntityManager.HasComponent<FacingDirection>(playerEntity))
+        {
+            var direction = state.EntityManager.GetComponentData<FacingDirection>(playerEntity).Value;
+
+            if (math.lengthsq(direction) > 0.0001f)
+            {
+                return math.normalize(direction);
+            }
+        }
+
+        return new float2(0f, 1f);
+    }
+
+    private bool ShouldRunTimedSpawn(ref SystemState state, float intervalSeconds)
+    {
+        if (intervalSeconds <= 0f)
+        {
+            return true;
+        }
+
+        spawnElapsedSeconds += SystemAPI.Time.DeltaTime;
+
+        if (!MonsterSpawnDirectorUtility.ShouldSpawnByInterval(spawnElapsedSeconds, intervalSeconds))
+        {
+            return false;
+        }
+
+        spawnElapsedSeconds = math.max(0f, spawnElapsedSeconds - intervalSeconds);
+        return true;
+    }
+
+    private bool ShouldRunRecycleScan(ref SystemState state, float intervalSeconds)
+    {
+        if (intervalSeconds <= 0f)
+        {
+            return true;
+        }
+
+        recycleElapsedSeconds += SystemAPI.Time.DeltaTime;
+
+        if (!MonsterSpawnDirectorUtility.ShouldSpawnByInterval(recycleElapsedSeconds, intervalSeconds))
+        {
+            return false;
+        }
+
+        recycleElapsedSeconds = math.max(0f, recycleElapsedSeconds - intervalSeconds);
+        return true;
+    }
+
+    private void SpawnMonstersAroundPlayer(
         ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
         MonsterSpawnDirectorConfig config,
         DynamicBuffer<MonsterSpawnPrefabElement> monsterPrefabs,
-        float3 playerPosition)
+        float3 playerPosition,
+        float2 preferredSpawnDirection,
+        float groundY,
+        int spawnCount)
     {
-        foreach (var (cell, cellTransform, cellEntity) in
-                 SystemAPI.Query<RefRO<MapCell>, RefRO<LocalTransform>>()
-                     .WithNone<MapCellMonsterSpawned>()
-                     .WithEntityAccess())
+        var random = new Unity.Mathematics.Random(MonsterSpawnDirectorUtility.CreateTimedSpawnSeed(
+            config.WorldSeed,
+            playerPosition,
+            spawnSequence++));
+
+        for (var spawnIndex = 0; spawnIndex < spawnCount; spawnIndex++)
         {
-            if (!state.EntityManager.HasComponent<MapCellConfig>(cell.ValueRO.ConfigEntity))
+            var monsterPrefab = MonsterSpawnDirectorUtility.SelectMonsterPrefab(
+                monsterPrefabs,
+                ref random);
+
+            if (monsterPrefab == Entity.Null)
             {
                 continue;
             }
 
-            var seed = MapCellUtility.CreateCellSeed(
-                config.WorldSeed,
-                cell.ValueRO.Coord);
-            var random = new Unity.Mathematics.Random(seed);
-            var spawnCount = MonsterSpawnDirectorUtility.CalculateCellSpawnCount(
-                config.MinSpawnCountPerCell,
-                config.MaxSpawnCountPerCell,
+            var position = MonsterSpawnDirectorUtility.CalculateBiasedPlayerRingSpawnPosition(
+                playerPosition,
+                groundY,
+                config.MinSpawnDistanceFromPlayer,
+                config.MaxSpawnDistanceFromPlayer,
+                preferredSpawnDirection,
+                config.ForwardSpawnBias,
                 ref random);
 
-            for (var spawnIndex = 0; spawnIndex < spawnCount; spawnIndex++)
-            {
-                var monsterPrefab = MonsterSpawnDirectorUtility.SelectMonsterPrefab(
-                    monsterPrefabs,
-                    ref random);
-
-                if (monsterPrefab == Entity.Null)
-                {
-                    continue;
-                }
-
-                var position = MonsterSpawnDirectorUtility.CalculatePlayerRingSpawnPosition(
-                    playerPosition,
-                    cellTransform.ValueRO.Position.y,
-                    config.MinSpawnDistanceFromPlayer,
-                    config.MaxSpawnDistanceFromPlayer,
-                    ref random);
-                var monster = entityCommandBuffer.Instantiate(monsterPrefab);
-                var transform = CreateMonsterSpawnTransform(
-                    ref state,
-                    monsterPrefab,
-                    position);
-
-                entityCommandBuffer.SetComponent(
-                    monster,
-                    transform);
-                entityCommandBuffer.AddComponent(monster, new MapCellOwnedEntity
-                {
-                    CellEntity = cellEntity
-                });
-            }
-
-            entityCommandBuffer.AddComponent<MapCellMonsterSpawned>(cellEntity);
+            SpawnMonster(
+                ref state,
+                ref entityCommandBuffer,
+                monsterPrefab,
+                position);
         }
     }
 
-    private static LocalTransform CreateMonsterSpawnTransform(
+    private MonsterDensityStats CountAliveMonsterDensity(
+        ref SystemState state,
+        float3 playerPosition,
+        float nearbyMonsterRadius)
+    {
+        var stats = new MonsterDensityStats();
+        var safeNearbyRadius = math.max(0f, math.abs(nearbyMonsterRadius));
+        var nearbyMonsterRadiusSq = safeNearbyRadius * safeNearbyRadius;
+
+        foreach (var transform in
+                 SystemAPI.Query<RefRO<LocalTransform>>()
+                     .WithAll<MonsterTag, MonsterRecycleTag>()
+                     .WithNone<MonsterDestroyVfxState>())
+        {
+            stats.Alive++;
+
+            if (safeNearbyRadius <= 0f)
+            {
+                continue;
+            }
+
+            var delta = transform.ValueRO.Position.xz - playerPosition.xz;
+
+            if (math.lengthsq(delta) <= nearbyMonsterRadiusSq)
+            {
+                stats.Nearby++;
+            }
+        }
+
+        return stats;
+    }
+
+    private int RecycleDistantMonstersForNearbyDensity(
+        ref SystemState state,
+        MonsterSpawnDirectorConfig config,
+        float3 playerPosition,
+        float2 preferredSpawnDirection,
+        float groundY,
+        int maxRecycleCount)
+    {
+        var normalizedMaxRecycleCount = MonsterSpawnDirectorUtility.NormalizeSpawnCount(maxRecycleCount);
+        var safeNearbyRadius = math.max(0f, math.abs(config.NearbyMonsterRadius));
+
+        if (normalizedMaxRecycleCount <= 0 ||
+            safeNearbyRadius <= 0f)
+        {
+            densityRecycleScanCursor = 0;
+            return 0;
+        }
+
+        var nearbyMonsterRadiusSq = safeNearbyRadius * safeNearbyRadius;
+        var maxChecksPerFrame =
+            MonsterSpawnDirectorUtility.NormalizeRecycleChecksPerFrame(config.MaxRecycleChecksPerFrame);
+        var checkedMonsterCount = 0;
+        var seenMonsterCount = 0;
+        var recycledMonsterCount = 0;
+        var random = new Unity.Mathematics.Random(MonsterSpawnDirectorUtility.CreateTimedSpawnSeed(
+            config.WorldSeed,
+            playerPosition,
+            spawnSequence++));
+        var healthLookup = SystemAPI.GetComponentLookup<HealthComponent>(false);
+        var velocityLookup = SystemAPI.GetComponentLookup<Velocity>(false);
+        var hitVfxLookup = SystemAPI.GetComponentLookup<MonsterHitVfxState>(false);
+        var hitVfxConfigLookup = SystemAPI.GetComponentLookup<MonsterHitVfxConfig>(true);
+        var groundSnapLookup = SystemAPI.GetComponentLookup<GroundSnap>(false);
+
+        foreach (var (transform, entity) in
+                 SystemAPI.Query<RefRW<LocalTransform>>()
+                     .WithAll<MonsterTag, MonsterRecycleTag>()
+                     .WithNone<MonsterDestroyVfxState>()
+                     .WithEntityAccess())
+        {
+            if (seenMonsterCount < densityRecycleScanCursor)
+            {
+                seenMonsterCount++;
+                continue;
+            }
+
+            seenMonsterCount++;
+            checkedMonsterCount++;
+
+            var delta = transform.ValueRO.Position.xz - playerPosition.xz;
+
+            if (math.lengthsq(delta) <= nearbyMonsterRadiusSq)
+            {
+                if (checkedMonsterCount >= maxChecksPerFrame)
+                {
+                    densityRecycleScanCursor = seenMonsterCount;
+                    return recycledMonsterCount;
+                }
+
+                continue;
+            }
+
+            var recyclePosition = MonsterSpawnDirectorUtility.CalculateBiasedPlayerRingSpawnPosition(
+                playerPosition,
+                groundY,
+                config.MinSpawnDistanceFromPlayer,
+                config.MaxSpawnDistanceFromPlayer,
+                preferredSpawnDirection,
+                config.ForwardSpawnBias,
+                ref random);
+
+            transform.ValueRW = CalculateMonsterPlacementTransform(
+                ref state,
+                entity,
+                recyclePosition,
+                transform.ValueRO);
+            ResetRecycledMonsterRuntimeState(
+                ref state,
+                entity,
+                groundY,
+                ref healthLookup,
+                ref velocityLookup,
+                ref hitVfxLookup,
+                ref hitVfxConfigLookup,
+                ref groundSnapLookup);
+
+            recycledMonsterCount++;
+
+            if (recycledMonsterCount >= normalizedMaxRecycleCount ||
+                checkedMonsterCount >= maxChecksPerFrame)
+            {
+                densityRecycleScanCursor = seenMonsterCount;
+                return recycledMonsterCount;
+            }
+        }
+
+        densityRecycleScanCursor = 0;
+        return recycledMonsterCount;
+    }
+
+    private bool RecycleFarMonsters(
+        ref SystemState state,
+        MonsterSpawnDirectorConfig config,
+        float3 playerPosition,
+        float groundY)
+    {
+        if (config.RecycleDistanceFromPlayer <= 0f)
+        {
+            recycleScanCursor = 0;
+            return true;
+        }
+
+        var maxChecksPerFrame =
+            MonsterSpawnDirectorUtility.NormalizeRecycleChecksPerFrame(config.MaxRecycleChecksPerFrame);
+        var checkedMonsterCount = 0;
+        var seenMonsterCount = 0;
+        var random = new Unity.Mathematics.Random(MonsterSpawnDirectorUtility.CreateTimedSpawnSeed(
+            config.WorldSeed,
+            playerPosition,
+            spawnSequence++));
+        var healthLookup = SystemAPI.GetComponentLookup<HealthComponent>(false);
+        var velocityLookup = SystemAPI.GetComponentLookup<Velocity>(false);
+        var hitVfxLookup = SystemAPI.GetComponentLookup<MonsterHitVfxState>(false);
+        var hitVfxConfigLookup = SystemAPI.GetComponentLookup<MonsterHitVfxConfig>(true);
+        var groundSnapLookup = SystemAPI.GetComponentLookup<GroundSnap>(false);
+
+        foreach (var (transform, entity) in
+                 SystemAPI.Query<RefRW<LocalTransform>>()
+                     .WithAll<MonsterTag, MonsterRecycleTag>()
+                     .WithNone<MonsterDestroyVfxState>()
+                     .WithEntityAccess())
+        {
+            if (seenMonsterCount < recycleScanCursor)
+            {
+                seenMonsterCount++;
+                continue;
+            }
+
+            seenMonsterCount++;
+            checkedMonsterCount++;
+
+            if (!MonsterSpawnDirectorUtility.ShouldRecycleByDistance(
+                transform.ValueRO.Position,
+                playerPosition,
+                config.RecycleDistanceFromPlayer))
+            {
+                if (checkedMonsterCount >= maxChecksPerFrame)
+                {
+                    recycleScanCursor = seenMonsterCount;
+                    return false;
+                }
+
+                continue;
+            }
+
+            var recyclePosition = MonsterSpawnDirectorUtility.CalculatePlayerRingSpawnPosition(
+                playerPosition,
+                groundY,
+                config.MinSpawnDistanceFromPlayer,
+                config.MaxSpawnDistanceFromPlayer,
+                ref random);
+
+            transform.ValueRW = CalculateMonsterPlacementTransform(
+                ref state,
+                entity,
+                recyclePosition,
+                transform.ValueRO);
+            ResetRecycledMonsterRuntimeState(
+                ref state,
+                entity,
+                groundY,
+                ref healthLookup,
+                ref velocityLookup,
+                ref hitVfxLookup,
+                ref hitVfxConfigLookup,
+                ref groundSnapLookup);
+
+            if (checkedMonsterCount >= maxChecksPerFrame)
+            {
+                recycleScanCursor = seenMonsterCount;
+                return false;
+            }
+        }
+
+        recycleScanCursor = 0;
+        return true;
+    }
+
+    private static void SpawnMonster(
+        ref SystemState state,
+        ref EntityCommandBuffer entityCommandBuffer,
+        Entity monsterPrefab,
+        float3 groundPosition)
+    {
+        if (monsterPrefab == Entity.Null)
+        {
+            return;
+        }
+
+        var monster = entityCommandBuffer.Instantiate(monsterPrefab);
+        var transform = CreateMonsterPlacementTransform(
+            ref state,
+            monsterPrefab,
+            groundPosition);
+
+        entityCommandBuffer.SetComponent(
+            monster,
+            transform);
+    }
+
+    private static void ResetRecycledMonsterRuntimeState(
+        ref SystemState state,
+        Entity monsterEntity,
+        float groundY,
+        ref ComponentLookup<HealthComponent> healthLookup,
+        ref ComponentLookup<Velocity> velocityLookup,
+        ref ComponentLookup<MonsterHitVfxState> hitVfxLookup,
+        ref ComponentLookup<MonsterHitVfxConfig> hitVfxConfigLookup,
+        ref ComponentLookup<GroundSnap> groundSnapLookup)
+    {
+        if (healthLookup.HasComponent(monsterEntity))
+        {
+            var health = healthLookup[monsterEntity];
+
+            health.CurrentHp = health.MaxHp;
+            healthLookup[monsterEntity] = health;
+        }
+
+        if (velocityLookup.HasComponent(monsterEntity))
+        {
+            velocityLookup[monsterEntity] = new Velocity
+            {
+                Value = float3.zero
+            };
+        }
+
+        if (hitVfxLookup.HasComponent(monsterEntity))
+        {
+            hitVfxLookup[monsterEntity] = new MonsterHitVfxState
+            {
+                ElapsedTime = 0f,
+                IsPlaying = 0
+            };
+        }
+
+        if (groundSnapLookup.HasComponent(monsterEntity))
+        {
+            groundSnapLookup[monsterEntity] = new GroundSnap
+            {
+                GroundY = groundY,
+                IsGrounded = 1
+            };
+        }
+
+        if (hitVfxConfigLookup.HasComponent(monsterEntity))
+        {
+            ResetMonsterMaterialColorIfPresent(
+                ref state,
+                monsterEntity,
+                hitVfxConfigLookup[monsterEntity].RestBaseColor);
+        }
+    }
+
+    private static void ResetMonsterMaterialColorIfPresent(
+        ref SystemState state,
+        Entity rootEntity,
+        float4 restColor)
+    {
+        if (!state.EntityManager.HasBuffer<LinkedEntityGroup>(rootEntity))
+        {
+            SetMonsterMaterialColorIfPresent(ref state, rootEntity, restColor);
+            return;
+        }
+
+        var linkedEntities = state.EntityManager.GetBuffer<LinkedEntityGroup>(rootEntity);
+
+        for (var linkedEntityIndex = 0; linkedEntityIndex < linkedEntities.Length; linkedEntityIndex++)
+        {
+            SetMonsterMaterialColorIfPresent(
+                ref state,
+                linkedEntities[linkedEntityIndex].Value,
+                restColor);
+        }
+    }
+
+    private static void SetMonsterMaterialColorIfPresent(
+        ref SystemState state,
+        Entity entity,
+        float4 restColor)
+    {
+        if (!state.EntityManager.HasComponent<MonsterMaterialBaseColor>(entity))
+        {
+            return;
+        }
+
+        state.EntityManager.SetComponentData(entity, new MonsterMaterialBaseColor
+        {
+            Value = restColor
+        });
+    }
+
+    private static LocalTransform CreateMonsterPlacementTransform(
         ref SystemState state,
         Entity monsterPrefab,
         float3 groundPosition)
@@ -620,5 +1465,28 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
             position,
             prefabTransform.Rotation,
             prefabTransform.Scale);
+    }
+
+    private static LocalTransform CalculateMonsterPlacementTransform(
+        ref SystemState state,
+        Entity monsterEntity,
+        float3 groundPosition,
+        LocalTransform currentTransform)
+    {
+        var position = groundPosition;
+
+        if (state.EntityManager.HasComponent<GroundSensor>(monsterEntity))
+        {
+            position = MonsterSpawnDirectorUtility.CalculateGroundedSpawnPosition(
+                groundPosition,
+                state.EntityManager.GetComponentData<GroundSensor>(monsterEntity),
+                currentTransform.Rotation,
+                currentTransform.Scale);
+        }
+
+        return LocalTransform.FromPositionRotationScale(
+            position,
+            currentTransform.Rotation,
+            currentTransform.Scale);
     }
 }

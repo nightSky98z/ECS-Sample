@@ -28,6 +28,24 @@ public struct KnockbackVelocity : IComponentData
 }
 
 /// <summary>
+/// Entity の HP。
+/// </summary>
+public struct HealthComponent : IComponentData
+{
+    public int CurrentHp;
+    public int MaxHp;
+}
+
+/// <summary>
+/// 頭上 HP bar の prefab 内 anchor。LocalOffset は Entity local 空間、Size は UI pixel size。
+/// </summary>
+public struct HealthBarAnchor : IComponentData
+{
+    public float3 LocalOffset;
+    public float2 Size;
+}
+
+/// <summary>
 /// XZ 平面で使うゲーム用の接触半径。
 /// </summary>
 public struct CollisionRadius : IComponentData

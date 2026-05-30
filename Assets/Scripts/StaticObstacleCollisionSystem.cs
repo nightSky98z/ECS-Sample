@@ -12,6 +12,8 @@ using Unity.Transforms;
 [UpdateBefore(typeof(GroundSensorSystem))]
 public partial struct StaticObstacleCollisionSystem : ISystem
 {
+    private const int MaxResolveIterations = 3;
+
     private ComponentLookup<StaticObstacleTag> obstacleLookup;
 
     [BurstCompile]
@@ -38,7 +40,8 @@ public partial struct StaticObstacleCollisionSystem : ISystem
         var obstacleHits = new NativeList<DistanceHit>(Allocator.Temp);
 
         foreach (var (transform, collisionRadius) in
-                 SystemAPI.Query<RefRW<LocalTransform>, RefRO<CollisionRadius>>())
+                 SystemAPI.Query<RefRW<LocalTransform>, RefRO<CollisionRadius>>()
+                     .WithNone<MonsterDestroyVfxState>())
         {
             var radius = collisionRadius.ValueRO.Value;
 
@@ -48,37 +51,52 @@ public partial struct StaticObstacleCollisionSystem : ISystem
             }
 
             var resolvedPosition = transform.ValueRO.Position;
-            var resolvedCenter = StaticObstacleCollisionMath.CalculateQueryCenter(
-                resolvedPosition,
-                radius);
-
-            obstacleHits.Clear();
-            collisionWorld.OverlapSphere(
-                resolvedCenter,
-                radius,
-                ref obstacleHits,
-                collisionFilter,
-                QueryInteraction.IgnoreTriggers);
-
-            for (var hitIndex = 0; hitIndex < obstacleHits.Length; hitIndex++)
+            for (var resolveIteration = 0; resolveIteration < MaxResolveIterations; resolveIteration++)
             {
-                var obstacleHit = obstacleHits[hitIndex];
-
-                if (!obstacleLookup.HasComponent(obstacleHit.Entity))
-                {
-                    continue;
-                }
-
-                var nextPosition = StaticObstacleCollisionMath.ResolveHorizontalPenetration(
+                var resolvedCenter = StaticObstacleCollisionMath.CalculateQueryCenter(
                     resolvedPosition,
+                    radius);
+                var movedThisIteration = false;
+
+                obstacleHits.Clear();
+                collisionWorld.OverlapSphere(
                     resolvedCenter,
                     radius,
-                    obstacleHit.Position,
-                    obstacleHit.SurfaceNormal);
-                var positionDelta = nextPosition - resolvedPosition;
+                    ref obstacleHits,
+                    collisionFilter,
+                    QueryInteraction.IgnoreTriggers);
 
-                resolvedPosition = nextPosition;
-                resolvedCenter += positionDelta;
+                for (var hitIndex = 0; hitIndex < obstacleHits.Length; hitIndex++)
+                {
+                    var obstacleHit = obstacleHits[hitIndex];
+
+                    if (!obstacleLookup.HasComponent(obstacleHit.Entity))
+                    {
+                        continue;
+                    }
+
+                    var nextPosition = StaticObstacleCollisionMath.ResolveHorizontalPenetration(
+                        resolvedPosition,
+                        resolvedCenter,
+                        radius,
+                        obstacleHit.Position,
+                        obstacleHit.SurfaceNormal);
+                    var positionDelta = nextPosition - resolvedPosition;
+
+                    if (math.lengthsq(positionDelta.xz) <= 0.000001f)
+                    {
+                        continue;
+                    }
+
+                    resolvedPosition = nextPosition;
+                    resolvedCenter += positionDelta;
+                    movedThisIteration = true;
+                }
+
+                if (!movedThisIteration)
+                {
+                    break;
+                }
             }
 
             transform.ValueRW.Position = resolvedPosition;

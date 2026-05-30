@@ -32,6 +32,9 @@ public struct MapCell : IComponentData
 {
     public Entity ConfigEntity;
     public int2 Coord;
+    public byte LocalStaticMeshSpawned;
+    public byte NavBuildDelayFrames;
+    public byte MonstersSpawned;
 }
 
 /// <summary>
@@ -549,11 +552,14 @@ public partial struct MapCellSystem : ISystem
                 config.CellSize,
                 config.GroundY,
                 prefabTransform));
-        entityCommandBuffer.AddComponent(cellEntity, new MapCell
-        {
-            ConfigEntity = configEntity,
-            Coord = cellCoord
-        });
+            entityCommandBuffer.AddComponent(cellEntity, new MapCell
+            {
+                ConfigEntity = configEntity,
+                Coord = cellCoord,
+                LocalStaticMeshSpawned = 0,
+                NavBuildDelayFrames = 0,
+                MonstersSpawned = 0
+            });
     }
 
     private static Entity SelectCellPrefab(

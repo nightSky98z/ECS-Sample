@@ -13,15 +13,17 @@ public partial struct EntitySpawnSystem : ISystem
     {
         var entityCommandBuffer = new EntityCommandBuffer(Allocator.Temp);
 
-        foreach (var (request, requestEntity) in
-                SystemAPI.Query<RefRO<SpawnRequest>>()
-                    .WithEntityAccess())
+        foreach (var requests in SystemAPI.Query<DynamicBuffer<SpawnRequest>>())
         {
-            var spawnedEntity = entityCommandBuffer.Instantiate(request.ValueRO.Prefab);
+            for (var requestIndex = 0; requestIndex < requests.Length; requestIndex++)
+            {
+                var request = requests[requestIndex];
+                var spawnedEntity = entityCommandBuffer.Instantiate(request.Prefab);
 
-            entityCommandBuffer.SetComponent(spawnedEntity, request.ValueRO.Transform);
+                entityCommandBuffer.SetComponent(spawnedEntity, request.Transform);
+            }
 
-            entityCommandBuffer.DestroyEntity(requestEntity);
+            requests.Clear();
         }
 
         entityCommandBuffer.Playback(state.EntityManager);

@@ -6,7 +6,7 @@ using Unity.Transforms;
 /// <summary>
 /// 生成したい Prefab Entity への一回分の要求。
 /// </summary>
-public struct SpawnRequest : IComponentData
+public struct SpawnRequest : IBufferElementData
 {
     /// <summary> 生成する Prefab Entity。 </summary>
     public Entity Prefab;
@@ -42,7 +42,7 @@ public partial class EntitySpawnerAuthoring : MonoBehaviour
     private Vector2 SpawnAreaSize = new Vector2(20f, 20f);
 
     /// <summary>
-    /// Authoring GameObject から、EntitySpawnSystem が消費する SpawnRequest を作る。
+    /// Authoring GameObject から、EntitySpawnSystem が消費する SpawnRequest buffer を作る。
     /// </summary>
     class Baking : Unity.Entities.Baker<EntitySpawnerAuthoring>
     {
@@ -58,6 +58,8 @@ public partial class EntitySpawnerAuthoring : MonoBehaviour
             }
 
             var prefab = GetEntity(authoring.SpawnEntityPrefab, TransformUsageFlags.Dynamic);
+            var entity = GetEntity(TransformUsageFlags.None);
+            var spawnRequests = AddBuffer<SpawnRequest>(entity);
             var rotation = authoring.transform.rotation;
             var baseRotation = new quaternion(rotation.x, rotation.y, rotation.z, rotation.w);
             // LocalTransform は uniform scale のみ保持する。非 uniform scale が必要なら PostTransformMatrix を使う。
@@ -68,9 +70,6 @@ public partial class EntitySpawnerAuthoring : MonoBehaviour
 
             for (var spawnIndex = 0; spawnIndex < spawnCount; spawnIndex++)
             {
-                var requestEntity = spawnIndex == 0
-                    ? GetEntity(TransformUsageFlags.None)
-                    : CreateAdditionalEntity(TransformUsageFlags.None);
                 var position = SpawnTransformUtility.CreateSpawnPosition(
                     center,
                     authoring.RandomizePosition,
@@ -86,7 +85,7 @@ public partial class EntitySpawnerAuthoring : MonoBehaviour
                         uniformScale)
                 };
 
-                AddComponent(requestEntity, spawnRequest);
+                spawnRequests.Add(spawnRequest);
             }
         }
     }
