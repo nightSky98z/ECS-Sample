@@ -1,6 +1,5 @@
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.Rendering;
 
 /// <summary>
 /// Monster death material VFX の prefab 側設定。
@@ -24,15 +23,6 @@ public struct MonsterDestroyVfxState : IComponentData
 }
 
 /// <summary>
-/// Monster material VFX が renderer の _BaseColor を上書きするための material property。
-/// </summary>
-[MaterialProperty("_BaseColor")]
-public struct MonsterMaterialBaseColor : IComponentData
-{
-    public float4 Value;
-}
-
-/// <summary>
 /// Monster hit material VFX の prefab 側設定。
 /// </summary>
 public struct MonsterHitVfxConfig : IComponentData
@@ -48,5 +38,9 @@ public struct MonsterHitVfxConfig : IComponentData
 public struct MonsterHitVfxState : IComponentData
 {
     public float ElapsedTime;
+
+    /// <summary>
+    /// 0 = stopped, 1 = playing。
+    /// </summary>
     public byte IsPlaying;
 }

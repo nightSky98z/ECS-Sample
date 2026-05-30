@@ -1,3 +1,4 @@
+using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using UnityEngine;
@@ -81,6 +82,10 @@ public class MonsterEntity : MonoBehaviour
             var entity = GetEntity(TransformUsageFlags.Dynamic);
 
             AddComponent<MonsterTag>(entity);
+            AddComponent(entity, new EntityDisplayName
+            {
+                Value = new FixedString64Bytes(authoring.name)
+            });
 
             if (authoring.RecycleAfterDeath)
             {
@@ -96,9 +101,7 @@ public class MonsterEntity : MonoBehaviour
             {
                 Value = authoring.MoveSpeed
             });
-            AddComponent(entity, HealthMath.CreateHealth(
-                authoring.MaxHp,
-                authoring.MaxHp));
+            AddComponent(entity, HealthMath.CreateFullHealth(authoring.MaxHp));
             AddComponent(entity, new CollisionRadius
             {
                 Value = authoring.CollisionRadius
@@ -149,9 +152,9 @@ public class MonsterEntity : MonoBehaviour
 }
 
 /// <summary>
-/// Monster prefab 配下の renderer Entity に、material VFX 用の初期色を焼く Baker。
+/// Monster prefab 配下の renderer Entity に、URP Lit の BaseColor override を焼く Baker。
 /// </summary>
-public sealed class MonsterMaterialBaseColorBaker : Unity.Entities.Baker<Renderer>
+public sealed class MonsterBaseColorOverrideBaker : Unity.Entities.Baker<Renderer>
 {
     public override void Bake(Renderer authoring)
     {
@@ -162,7 +165,7 @@ public sealed class MonsterMaterialBaseColorBaker : Unity.Entities.Baker<Rendere
 
         var entity = GetEntity(TransformUsageFlags.Renderable);
 
-        AddComponent(entity, new MonsterMaterialBaseColor
+        AddComponent(entity, new Unity.Rendering.URPMaterialPropertyBaseColor
         {
             Value = MonsterEntityBakingUtility.GetRendererBaseColor(authoring)
         });

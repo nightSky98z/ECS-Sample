@@ -17,7 +17,7 @@ public static class SkillMath
         };
     }
 
-    public static BuffAccumulator ApplyBuff(BuffAccumulator accumulator, BuffSkillComponent buff)
+    public static BuffAccumulator ApplyBuff(BuffAccumulator accumulator, BuffSkillConfig buff)
     {
         var multiplier = math.max(0f, buff.Multiplier);
 
@@ -51,33 +51,34 @@ public static class SkillMath
     }
 
     public static float CalculateEffectiveDamage(
-        AttackSkillComponent skill,
+        AttackSkillConfig config,
+        AttackSkillState state,
         BuffAccumulator buffs)
     {
-        return math.max(0f, skill.BaseDamage) *
-               CalculateLevelRate(skill.Level) *
+        return math.max(0f, config.BaseDamage) *
+               CalculateLevelRate(state.Level) *
                buffs.DamageMultiplier;
     }
 
     public static float CalculateEffectiveCooltime(
-        AttackSkillComponent skill,
+        AttackSkillConfig config,
         BuffAccumulator buffs)
     {
-        return math.max(0f, skill.Cooltime) * buffs.CooltimeMultiplier;
+        return math.max(0f, config.Cooltime) * buffs.CooltimeMultiplier;
     }
 
     public static float CalculateEffectiveTargetRange(
-        AttackSkillComponent skill,
+        AttackSkillConfig config,
         BuffAccumulator buffs)
     {
-        return math.max(0f, skill.BaseTargetRange) * buffs.TargetRangeMultiplier;
+        return math.max(0f, config.BaseTargetRange) * buffs.TargetRangeMultiplier;
     }
 
     public static float CalculateEffectiveAttackRange(
-        AttackSkillComponent skill,
+        AttackSkillConfig config,
         BuffAccumulator buffs)
     {
-        return math.max(0f, skill.BaseAttackRange) * buffs.AttackRangeMultiplier;
+        return math.max(0f, config.BaseAttackRange) * buffs.AttackRangeMultiplier;
     }
 
     public static int CalculateDamageToHp(float damage)

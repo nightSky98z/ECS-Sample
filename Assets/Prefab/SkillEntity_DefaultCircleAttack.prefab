@@ -47,7 +47,7 @@ MonoBehaviour:
   Id: 0
   BaseDamage: 10
   Cooltime: 1
-  BaseTargetRange: 30
+  BaseTargetRange: 20
   BaseAttackRange: 4
   Level: 1
   LogicId: 0

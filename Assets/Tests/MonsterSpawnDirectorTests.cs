@@ -335,10 +335,14 @@ public sealed class MonsterSpawnDirectorTests
     public void MonsterSpawnDirectorStopsTimedSpawnAfterStageClear()
     {
         var source = System.IO.File.ReadAllText("Assets/Scripts/MonsterSpawnDirectorAuthoring.cs");
+        var clearIndex = source.IndexOf("if (isStageCleared)", System.StringComparison.Ordinal);
+        var recycleIndex = source.IndexOf("if (recycleScanActive", System.StringComparison.Ordinal);
 
         StringAssert.Contains("IsAnyStageCleared", source);
         StringAssert.Contains("isStageCleared", source);
         StringAssert.Contains("continue;", source);
+        Assert.GreaterOrEqual(clearIndex, 0);
+        Assert.Greater(recycleIndex, clearIndex);
     }
 
     [Test]

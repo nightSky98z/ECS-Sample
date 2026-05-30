@@ -1,3 +1,4 @@
+using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 
@@ -28,12 +29,20 @@ public struct KnockbackVelocity : IComponentData
 }
 
 /// <summary>
-/// Entity の HP。
+/// Entity の HP。CurrentHp / MaxHp は damage、heal、level up で更新する runtime 状態。
 /// </summary>
 public struct HealthComponent : IComponentData
 {
     public int CurrentHp;
     public int MaxHp;
+}
+
+/// <summary>
+/// UI や debug 用の表示名。FixedString なので component 内に所有する。
+/// </summary>
+public struct EntityDisplayName : IComponentData
+{
+    public FixedString64Bytes Value;
 }
 
 /// <summary>
@@ -67,6 +76,10 @@ public struct Gravity : IComponentData
 public struct GroundSnap : IComponentData
 {
     public float GroundY;
+
+    /// <summary>
+    /// 0 = airborne, 1 = grounded。
+    /// </summary>
     public byte IsGrounded;
 }
 

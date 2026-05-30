@@ -1,3 +1,4 @@
+using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using UnityEngine;
@@ -82,7 +83,16 @@ public class PlayerEntity : MonoBehaviour
         {
             var entity = GetEntity(TransformUsageFlags.Dynamic);
 
+            if (authoring.DefaultAttackSkillEntity != null)
+            {
+                DependsOn(authoring.DefaultAttackSkillEntity);
+            }
+
             AddComponent<PlayerTag>(entity);
+            AddComponent(entity, new EntityDisplayName
+            {
+                Value = new FixedString64Bytes(authoring.name)
+            });
             AddComponent(entity, new PlayerInput
             {
                 Move = float2.zero
@@ -100,9 +110,7 @@ public class PlayerEntity : MonoBehaviour
                 Value = float3.zero,
                 DecayPerSecond = authoring.KnockbackDecayPerSecond
             });
-            AddComponent(entity, HealthMath.CreateHealth(
-                authoring.MaxHp,
-                authoring.MaxHp));
+            AddComponent(entity, HealthMath.CreateFullHealth(authoring.MaxHp));
             AddComponent(entity, new CollisionRadius
             {
                 Value = authoring.CollisionRadius
@@ -156,7 +164,10 @@ public class PlayerEntity : MonoBehaviour
                 }
 
                 AddComponent<EquippedSkillTag>(slot);
-                AddComponent(slot, authoring.CreateDefaultAttackSkill());
+                var defaultSkill = authoring.CreateDefaultAttackSkill();
+
+                AddComponent(slot, defaultSkill.Config);
+                AddComponent(slot, defaultSkill.State);
             }
 
             for (var slotIndex = 0; slotIndex < PlayerCombatConstants.MaxBuffSkillCount; slotIndex++)
@@ -176,7 +187,7 @@ public class PlayerEntity : MonoBehaviour
         }
     }
 
-    private AttackSkillComponent CreateDefaultAttackSkill()
+    private AttackSkillDefinition CreateDefaultAttackSkill()
     {
         if (DefaultAttackSkillEntity != null)
         {

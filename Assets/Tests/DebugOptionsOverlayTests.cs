@@ -104,7 +104,8 @@ public sealed class DebugOptionsOverlayTests
         StringAssert.Contains("GroundSensor", source);
         StringAssert.Contains("PhysicsCollider", source);
         StringAssert.Contains("ComponentType.ReadOnly<PlayerTag>()", source);
-        StringAssert.Contains("AttackSkillComponent", source);
+        StringAssert.Contains("AttackSkillConfig", source);
+        StringAssert.Contains("AttackSkillState", source);
         StringAssert.Contains("CalculateEffectiveTargetRange", source);
         StringAssert.Contains("SkillAttackRangeDebugEvents", source);
     }
@@ -135,5 +136,26 @@ public sealed class DebugOptionsOverlayTests
         StringAssert.Contains("playModeStateChanged", source);
         Assert.IsFalse(source.Contains("DestroyLeakedGameObjects"));
         Assert.IsFalse(source.Contains("Resources.FindObjectsOfTypeAll<GameObject>"));
+    }
+
+    [Test]
+    public void DebugOptionsWindowDoesNotUseRuntimeImgui()
+    {
+        var source = File.ReadAllText("Assets/Scripts/DebugOptionsOverlay.cs");
+
+        StringAssert.Contains("Canvas", source);
+        StringAssert.Contains("ProcessPointerInput", source);
+        Assert.IsFalse(source.Contains("private void OnGUI"));
+        Assert.IsFalse(source.Contains("GUI.Window"));
+        Assert.IsFalse(source.Contains("GUILayout.Toggle"));
+    }
+
+    [Test]
+    public void DebugOptionsUsesCurrentUnityBuiltInFont()
+    {
+        var source = File.ReadAllText("Assets/Scripts/DebugOptionsOverlay.cs");
+
+        StringAssert.Contains("LegacyRuntime.ttf", source);
+        Assert.IsFalse(source.Contains("Arial.ttf"));
     }
 }

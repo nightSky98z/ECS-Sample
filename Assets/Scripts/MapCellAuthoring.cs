@@ -32,8 +32,20 @@ public struct MapCell : IComponentData
 {
     public Entity ConfigEntity;
     public int2 Coord;
+
+    /// <summary>
+    /// 0 = local static mesh 未生成, 1 = 生成済み。
+    /// </summary>
     public byte LocalStaticMeshSpawned;
+
+    /// <summary>
+    /// Nav build 開始まで待つ frame 数。これは flag ではない。
+    /// </summary>
     public byte NavBuildDelayFrames;
+
+    /// <summary>
+    /// 0 = cell 初期 monster 未生成, 1 = 生成済み。
+    /// </summary>
     public byte MonstersSpawned;
 }
 

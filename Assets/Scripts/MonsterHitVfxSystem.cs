@@ -32,21 +32,20 @@ public partial struct MonsterHitVfxSystem : ISystem
                 continue;
             }
 
-            var nextElapsedTime = vfxState.ValueRO.ElapsedTime + deltaTime;
             var progress = MonsterHitVfxMath.CalculateProgress(
-                nextElapsedTime,
+                vfxState.ValueRO.ElapsedTime,
                 config.ValueRO.Duration);
             var baseColor = MonsterHitVfxMath.CalculateBaseColor(
                 config.ValueRO.HitBaseColor,
                 config.ValueRO.RestBaseColor,
                 progress);
 
-            vfxState.ValueRW.ElapsedTime = nextElapsedTime;
+            vfxState.ValueRW.ElapsedTime = vfxState.ValueRO.ElapsedTime + deltaTime;
             AddOrSetMaterialColorForLinkedRenderEntities(
                 ref state,
                 ref commandBuffer,
                 entity,
-                new MonsterMaterialBaseColor
+                new URPMaterialPropertyBaseColor
                 {
                     Value = baseColor
                 });
@@ -68,7 +67,7 @@ public partial struct MonsterHitVfxSystem : ISystem
         ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
         Entity rootEntity,
-        MonsterMaterialBaseColor color)
+        URPMaterialPropertyBaseColor color)
     {
         if (!state.EntityManager.HasBuffer<LinkedEntityGroup>(rootEntity))
         {
@@ -92,17 +91,15 @@ public partial struct MonsterHitVfxSystem : ISystem
         ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
         Entity entity,
-        MonsterMaterialBaseColor color)
+        URPMaterialPropertyBaseColor color)
     {
-        if (!state.EntityManager.HasComponent<MaterialMeshInfo>(entity))
+        if (!state.EntityManager.HasComponent<MaterialMeshInfo>(entity) ||
+            !state.EntityManager.HasComponent<URPMaterialPropertyBaseColor>(entity))
         {
             return;
         }
 
-        if (state.EntityManager.HasComponent<MonsterMaterialBaseColor>(entity))
-        {
-            entityCommandBuffer.SetComponent(entity, color);
-        }
+        entityCommandBuffer.SetComponent(entity, color);
     }
 }
 

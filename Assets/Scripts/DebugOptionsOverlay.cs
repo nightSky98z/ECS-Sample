@@ -9,6 +9,7 @@ using UnityEngine.Rendering;
 using Unity.Transforms;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.UI;
 
 /// <summary>
 /// Editor と Development Build だけで生成される runtime debug option window。
@@ -16,24 +17,47 @@ using UnityEngine.InputSystem;
 public sealed class DebugOptionsOverlay : MonoBehaviour
 {
     private const string ObjectName = "Debug Options Overlay";
-    private const int WindowId = 0x6401;
+    private const string BuiltInFontResourceName = "LegacyRuntime.ttf";
     private const float Margin = 16f;
     private const float TitleBarHeight = 22f;
     private const float ResizeHandleSize = 18f;
     private const float FpsRefreshSeconds = 0.25f;
+    private const float FpsToggleY = 72f;
+    private const float PlayerColliderToggleY = 100f;
+    private const float SkillTargetRangeToggleY = 128f;
+    private const float SkillAttackRangeToggleY = 156f;
+    private const float WindowFpsY = 184f;
 
     private static readonly Vector2 DefaultWindowSize = new Vector2(320f, 220f);
     private static readonly Vector2 MinimumWindowSize = new Vector2(260f, 160f);
+    private static readonly Color WindowBackgroundColor = new Color(0f, 0f, 0f, 0.36f);
+    private static readonly Color CheckboxOnColor = new Color(0.92f, 0.92f, 0.92f, 1f);
+    private static readonly Color CheckboxOffColor = new Color(0.06f, 0.06f, 0.06f, 1f);
+    private static readonly Color TextColor = Color.white;
 
     private Rect windowRect;
+    private Canvas overlayCanvas;
+    private RectTransform windowRoot;
+    private RectTransform fpsRoot;
+    private RectTransform resizeHandleRect;
+    private Text fpsOverlayText;
+    private Text windowFpsText;
+    private Image fpsCheckboxImage;
+    private Image playerColliderCheckboxImage;
+    private Image skillTargetRangeCheckboxImage;
+    private Image skillAttackRangeCheckboxImage;
     private bool isWindowOpen;
     private bool isFpsVisible;
     private bool isPlayerColliderWireframeVisible;
     private bool isSkillTargetRangeVisible;
     private bool isSkillAttackRangeVisible;
     private bool isResizing;
+    private bool isDragging;
+    private bool ownsOverlayCanvas;
     private Vector2 resizeMouseStart;
     private Vector2 resizeSizeStart;
+    private Vector2 dragMouseStart;
+    private Vector2 dragWindowStart;
     private float fps;
     private float fpsElapsedSeconds;
     private int fpsFrameCount;
@@ -98,12 +122,14 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
 
     private void OnDisable()
     {
+        SetRuntimeUiVisible(false);
         CleanupDebugObjects();
     }
 
     private void OnDestroy()
     {
         CleanupDebugObjects();
+        DestroyRuntimeUi();
     }
 
     private void Update()
@@ -117,6 +143,9 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
 
         UpdateFps(Time.unscaledDeltaTime);
 
+        EnsureRuntimeUi();
+        ProcessPointerInput();
+        UpdateRuntimeUi();
     }
 
     private static void CleanupDebugObjects()
@@ -140,34 +169,6 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
             isPlayerColliderWireframeVisible,
             isSkillTargetRangeVisible,
             isSkillAttackRangeVisible);
-    }
-
-    private void OnGUI()
-    {
-        windowRect = DebugOptionsOverlayMath.ClampWindowRect(
-            windowRect,
-            Screen.width,
-            Screen.height,
-            MinimumWindowSize);
-
-        HandleResizeInput(Event.current);
-
-        if (isFpsVisible)
-        {
-            DrawFps();
-        }
-
-        if (!isWindowOpen)
-        {
-            return;
-        }
-
-        windowRect = GUI.Window(WindowId, windowRect, DrawWindow, "Debug Options");
-        windowRect = DebugOptionsOverlayMath.ClampWindowRect(
-            windowRect,
-            Screen.width,
-            Screen.height,
-            MinimumWindowSize);
     }
 
     private void UpdateFps(float deltaTime)
@@ -197,81 +198,141 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         fpsFrameCount = 0;
     }
 
-    private void DrawFps()
+    private bool EnsureRuntimeUi()
     {
-        var fpsText = fps.ToString("0.0", CultureInfo.InvariantCulture);
+        if (overlayCanvas != null &&
+            windowRoot != null &&
+            fpsRoot != null &&
+            resizeHandleRect != null &&
+            fpsOverlayText != null &&
+            windowFpsText != null &&
+            fpsCheckboxImage != null &&
+            playerColliderCheckboxImage != null &&
+            skillTargetRangeCheckboxImage != null &&
+            skillAttackRangeCheckboxImage != null)
+        {
+            return true;
+        }
 
-        GUI.Box(new Rect(12f, 12f, 104f, 28f), $"FPS {fpsText}");
-    }
+        DestroyRuntimeUi();
 
-    private void DrawWindow(int windowId)
-    {
-        GUILayout.Space(4f);
-        GUILayout.Label("Options");
-        isFpsVisible = GUILayout.Toggle(isFpsVisible, "FPS 表示");
-        isPlayerColliderWireframeVisible = GUILayout.Toggle(
-            isPlayerColliderWireframeVisible,
+        var canvasObject = new GameObject("Debug Options Canvas", typeof(RectTransform));
+        var canvas = canvasObject.AddComponent<Canvas>();
+
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 1000;
+        Object.DontDestroyOnLoad(canvasObject);
+
+        overlayCanvas = canvas;
+        ownsOverlayCanvas = true;
+
+        fpsRoot = CreateRect("fps-root", overlayCanvas.transform);
+        CreateImage("fps-background", fpsRoot, WindowBackgroundColor);
+        fpsOverlayText = CreateText("fps-text", fpsRoot, 20, FontStyle.Normal);
+
+        windowRoot = CreateRect("window-root", overlayCanvas.transform);
+        CreateImage("window-background", windowRoot, WindowBackgroundColor);
+
+        var titleText = CreateText("title", windowRoot, 18, FontStyle.Bold);
+
+        SetTopLeftRect(titleText.rectTransform, 0f, 0f, DefaultWindowSize.x, TitleBarHeight);
+        titleText.alignment = TextAnchor.MiddleCenter;
+        titleText.text = "Debug Options";
+
+        var optionsText = CreateText("options-label", windowRoot, 17, FontStyle.Normal);
+
+        SetTopLeftRect(optionsText.rectTransform, 18f, 42f, 220f, 24f);
+        optionsText.text = "Options";
+
+        fpsCheckboxImage = CreateCheckboxRow(windowRoot, FpsToggleY, "FPS 表示");
+        playerColliderCheckboxImage = CreateCheckboxRow(
+            windowRoot,
+            PlayerColliderToggleY,
             "Player Collider Wireframe");
-        isSkillTargetRangeVisible = GUILayout.Toggle(
-            isSkillTargetRangeVisible,
+        skillTargetRangeCheckboxImage = CreateCheckboxRow(
+            windowRoot,
+            SkillTargetRangeToggleY,
             "Skill Target Range");
-        isSkillAttackRangeVisible = GUILayout.Toggle(
-            isSkillAttackRangeVisible,
+        skillAttackRangeCheckboxImage = CreateCheckboxRow(
+            windowRoot,
+            SkillAttackRangeToggleY,
             "Skill Attack Range");
 
-        if (isFpsVisible)
-        {
-            GUILayout.Label($"FPS: {fps.ToString("0.0", CultureInfo.InvariantCulture)}");
-        }
+        windowFpsText = CreateText("window-fps", windowRoot, 17, FontStyle.Normal);
+        SetTopLeftRect(windowFpsText.rectTransform, 18f, WindowFpsY, 180f, 24f);
 
-        GUILayout.FlexibleSpace();
-        DrawResizeHandle();
-        GUI.DragWindow(new Rect(0f, 0f, windowRect.width - ResizeHandleSize, TitleBarHeight));
-    }
+        var resizeHandle = CreateImage("resize-handle", windowRoot, new Color(1f, 1f, 1f, 0.28f));
 
-    private void DrawResizeHandle()
-    {
-        var handleRect = new Rect(
-            windowRect.width - ResizeHandleSize,
-            windowRect.height - ResizeHandleSize,
+        resizeHandleRect = resizeHandle.rectTransform;
+
+        SetTopLeftRect(
+            resizeHandleRect,
+            DefaultWindowSize.x - ResizeHandleSize,
+            DefaultWindowSize.y - ResizeHandleSize,
             ResizeHandleSize,
             ResizeHandleSize);
 
-        GUI.Box(handleRect, string.Empty);
+        return true;
     }
 
-    private void HandleResizeInput(Event currentEvent)
+    private void ProcessPointerInput()
     {
-        if (!isWindowOpen || currentEvent == null)
+        if (!isWindowOpen)
+        {
+            isDragging = false;
+            isResizing = false;
+            return;
+        }
+
+        var mouse = Mouse.current;
+
+        if (mouse == null)
         {
             return;
         }
 
-        var handleRect = new Rect(
-            windowRect.xMax - ResizeHandleSize,
-            windowRect.yMax - ResizeHandleSize,
-            ResizeHandleSize,
-            ResizeHandleSize);
+        var mousePosition = ToTopLeftMousePosition(mouse.position.ReadValue());
 
-        if (currentEvent.type == EventType.MouseDown &&
-            currentEvent.button == 0 &&
-            handleRect.Contains(currentEvent.mousePosition))
+        if (mouse.leftButton.wasPressedThisFrame)
         {
-            isResizing = true;
-            resizeMouseStart = currentEvent.mousePosition;
-            resizeSizeStart = new Vector2(windowRect.width, windowRect.height);
-            currentEvent.Use();
+            if (GetResizeHandleRect().Contains(mousePosition))
+            {
+                isResizing = true;
+                resizeMouseStart = mousePosition;
+                resizeSizeStart = new Vector2(windowRect.width, windowRect.height);
+                return;
+            }
+
+            if (TryToggleClickedOption(mousePosition))
+            {
+                return;
+            }
+
+            if (GetTitleBarRect().Contains(mousePosition))
+            {
+                isDragging = true;
+                dragMouseStart = mousePosition;
+                dragWindowStart = new Vector2(windowRect.x, windowRect.y);
+            }
+        }
+
+        if (mouse.leftButton.wasReleasedThisFrame)
+        {
+            isDragging = false;
+            isResizing = false;
             return;
         }
 
-        if (!isResizing)
+        if (!mouse.leftButton.isPressed)
         {
+            isDragging = false;
+            isResizing = false;
             return;
         }
 
-        if (currentEvent.type == EventType.MouseDrag)
+        if (isResizing)
         {
-            var delta = currentEvent.mousePosition - resizeMouseStart;
+            var delta = mousePosition - resizeMouseStart;
 
             windowRect.width = resizeSizeStart.x + delta.x;
             windowRect.height = resizeSizeStart.y + delta.y;
@@ -280,15 +341,222 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
                 Screen.width,
                 Screen.height,
                 MinimumWindowSize);
-            currentEvent.Use();
             return;
         }
 
-        if (currentEvent.type == EventType.MouseUp)
+        if (isDragging)
         {
-            isResizing = false;
-            currentEvent.Use();
+            var delta = mousePosition - dragMouseStart;
+
+            windowRect.x = dragWindowStart.x + delta.x;
+            windowRect.y = dragWindowStart.y + delta.y;
+            windowRect = DebugOptionsOverlayMath.ClampWindowRect(
+                windowRect,
+                Screen.width,
+                Screen.height,
+                MinimumWindowSize);
         }
+    }
+
+    private bool TryToggleClickedOption(Vector2 mousePosition)
+    {
+        if (GetToggleRect(FpsToggleY).Contains(mousePosition))
+        {
+            isFpsVisible = !isFpsVisible;
+            return true;
+        }
+
+        if (GetToggleRect(PlayerColliderToggleY).Contains(mousePosition))
+        {
+            isPlayerColliderWireframeVisible = !isPlayerColliderWireframeVisible;
+            return true;
+        }
+
+        if (GetToggleRect(SkillTargetRangeToggleY).Contains(mousePosition))
+        {
+            isSkillTargetRangeVisible = !isSkillTargetRangeVisible;
+            return true;
+        }
+
+        if (GetToggleRect(SkillAttackRangeToggleY).Contains(mousePosition))
+        {
+            isSkillAttackRangeVisible = !isSkillAttackRangeVisible;
+            return true;
+        }
+
+        return false;
+    }
+
+    private void UpdateRuntimeUi()
+    {
+        if (!EnsureRuntimeUi())
+        {
+            return;
+        }
+
+        windowRect = DebugOptionsOverlayMath.ClampWindowRect(
+            windowRect,
+            Screen.width,
+            Screen.height,
+            MinimumWindowSize);
+
+        SetTopLeftRect(windowRoot, windowRect.x, windowRect.y, windowRect.width, windowRect.height);
+        SetTopLeftRect(fpsRoot, 12f, 12f, 104f, 28f);
+        SetTopLeftRect(
+            resizeHandleRect,
+            windowRect.width - ResizeHandleSize,
+            windowRect.height - ResizeHandleSize,
+            ResizeHandleSize,
+            ResizeHandleSize);
+
+        var fpsText = fps.ToString("0.0", CultureInfo.InvariantCulture);
+
+        fpsRoot.gameObject.SetActive(isFpsVisible);
+        fpsOverlayText.text = $"FPS {fpsText}";
+        windowRoot.gameObject.SetActive(isWindowOpen);
+        windowFpsText.gameObject.SetActive(isFpsVisible);
+        windowFpsText.text = $"FPS: {fpsText}";
+
+        UpdateCheckbox(fpsCheckboxImage, isFpsVisible);
+        UpdateCheckbox(playerColliderCheckboxImage, isPlayerColliderWireframeVisible);
+        UpdateCheckbox(skillTargetRangeCheckboxImage, isSkillTargetRangeVisible);
+        UpdateCheckbox(skillAttackRangeCheckboxImage, isSkillAttackRangeVisible);
+    }
+
+    private void SetRuntimeUiVisible(bool visible)
+    {
+        if (windowRoot != null)
+        {
+            windowRoot.gameObject.SetActive(visible && isWindowOpen);
+        }
+
+        if (fpsRoot != null)
+        {
+            fpsRoot.gameObject.SetActive(visible && isFpsVisible);
+        }
+    }
+
+    private void DestroyRuntimeUi()
+    {
+        if (ownsOverlayCanvas && overlayCanvas != null)
+        {
+            Destroy(overlayCanvas.gameObject);
+        }
+
+        overlayCanvas = null;
+        windowRoot = null;
+        fpsRoot = null;
+        resizeHandleRect = null;
+        fpsOverlayText = null;
+        windowFpsText = null;
+        fpsCheckboxImage = null;
+        playerColliderCheckboxImage = null;
+        skillTargetRangeCheckboxImage = null;
+        skillAttackRangeCheckboxImage = null;
+        ownsOverlayCanvas = false;
+    }
+
+    private Rect GetTitleBarRect()
+    {
+        return new Rect(windowRect.x, windowRect.y, windowRect.width - ResizeHandleSize, TitleBarHeight);
+    }
+
+    private Rect GetResizeHandleRect()
+    {
+        return new Rect(
+            windowRect.xMax - ResizeHandleSize,
+            windowRect.yMax - ResizeHandleSize,
+            ResizeHandleSize,
+            ResizeHandleSize);
+    }
+
+    private Rect GetToggleRect(float rowY)
+    {
+        return new Rect(windowRect.x + 18f, windowRect.y + rowY, windowRect.width - 36f, 24f);
+    }
+
+    private static Vector2 ToTopLeftMousePosition(Vector2 bottomLeftMousePosition)
+    {
+        return new Vector2(bottomLeftMousePosition.x, Screen.height - bottomLeftMousePosition.y);
+    }
+
+    private static void UpdateCheckbox(Image checkboxImage, bool isChecked)
+    {
+        if (checkboxImage != null)
+        {
+            checkboxImage.color = isChecked ? CheckboxOnColor : CheckboxOffColor;
+        }
+    }
+
+    private static Image CreateCheckboxRow(RectTransform parent, float rowY, string label)
+    {
+        var checkbox = CreateImage("checkbox", parent, CheckboxOffColor);
+
+        SetTopLeftRect(checkbox.rectTransform, 18f, rowY + 3f, 16f, 16f);
+
+        var labelText = CreateText(label, parent, 17, FontStyle.Normal);
+
+        SetTopLeftRect(labelText.rectTransform, 44f, rowY, 260f, 24f);
+        labelText.text = label;
+
+        return checkbox;
+    }
+
+    private static RectTransform CreateRect(string name, Transform parent)
+    {
+        var gameObject = new GameObject(name, typeof(RectTransform));
+
+        gameObject.transform.SetParent(parent, false);
+
+        return gameObject.GetComponent<RectTransform>();
+    }
+
+    private static Image CreateImage(string name, Transform parent, Color color)
+    {
+        var gameObject = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+
+        gameObject.transform.SetParent(parent, false);
+
+        var rectTransform = gameObject.GetComponent<RectTransform>();
+
+        rectTransform.anchorMin = Vector2.zero;
+        rectTransform.anchorMax = Vector2.one;
+        rectTransform.offsetMin = Vector2.zero;
+        rectTransform.offsetMax = Vector2.zero;
+
+        var image = gameObject.GetComponent<Image>();
+
+        image.color = color;
+        image.raycastTarget = false;
+
+        return image;
+    }
+
+    private static Text CreateText(string name, Transform parent, int fontSize, FontStyle fontStyle)
+    {
+        var gameObject = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Text));
+
+        gameObject.transform.SetParent(parent, false);
+
+        var text = gameObject.GetComponent<Text>();
+
+        text.font = Resources.GetBuiltinResource<Font>(BuiltInFontResourceName);
+        text.color = TextColor;
+        text.fontSize = fontSize;
+        text.fontStyle = fontStyle;
+        text.alignment = TextAnchor.MiddleLeft;
+        text.raycastTarget = false;
+
+        return text;
+    }
+
+    private static void SetTopLeftRect(RectTransform rectTransform, float x, float y, float width, float height)
+    {
+        rectTransform.anchorMin = new Vector2(0f, 1f);
+        rectTransform.anchorMax = new Vector2(0f, 1f);
+        rectTransform.pivot = new Vector2(0f, 1f);
+        rectTransform.anchoredPosition = new Vector2(x, -y);
+        rectTransform.sizeDelta = new Vector2(width, height);
     }
 }
 
@@ -483,22 +751,23 @@ public static class DebugOptionsRuntimeDrawer
     private static void DrawSkillTargetRanges(EntityManager entityManager)
     {
         var attackQuery = entityManager.CreateEntityQuery(
-            ComponentType.ReadOnly<AttackSkillComponent>(),
+            ComponentType.ReadOnly<AttackSkillConfig>(),
+            ComponentType.ReadOnly<AttackSkillState>(),
             ComponentType.ReadOnly<SkillSlotComponent>(),
             ComponentType.ReadOnly<EquippedSkillTag>(),
             ComponentType.ReadOnly<AttackSkillSlotTag>());
         var buffQuery = entityManager.CreateEntityQuery(
-            ComponentType.ReadOnly<BuffSkillComponent>(),
+            ComponentType.ReadOnly<BuffSkillConfig>(),
             ComponentType.ReadOnly<SkillSlotComponent>(),
             ComponentType.ReadOnly<EquippedSkillTag>(),
             ComponentType.ReadOnly<BuffSkillSlotTag>());
-        var attackSkills = attackQuery.ToComponentDataArray<AttackSkillComponent>(Allocator.Temp);
+        var attackConfigs = attackQuery.ToComponentDataArray<AttackSkillConfig>(Allocator.Temp);
         var attackSlots = attackQuery.ToComponentDataArray<SkillSlotComponent>(Allocator.Temp);
-        var buffSkills = buffQuery.ToComponentDataArray<BuffSkillComponent>(Allocator.Temp);
+        var buffSkills = buffQuery.ToComponentDataArray<BuffSkillConfig>(Allocator.Temp);
         var buffSlots = buffQuery.ToComponentDataArray<SkillSlotComponent>(Allocator.Temp);
         var renderedRangeCount = 0;
 
-        for (var skillIndex = 0; skillIndex < attackSkills.Length; skillIndex++)
+        for (var skillIndex = 0; skillIndex < attackConfigs.Length; skillIndex++)
         {
             var owner = attackSlots[skillIndex].Owner;
 
@@ -513,7 +782,7 @@ public static class DebugOptionsRuntimeDrawer
                 owner,
                 buffSkills,
                 buffSlots);
-            var targetRange = SkillMath.CalculateEffectiveTargetRange(attackSkills[skillIndex], buffs);
+            var targetRange = SkillMath.CalculateEffectiveTargetRange(attackConfigs[skillIndex], buffs);
 
             if (targetRange > 0f)
             {
@@ -531,7 +800,7 @@ public static class DebugOptionsRuntimeDrawer
         buffSlots.Dispose();
         buffSkills.Dispose();
         attackSlots.Dispose();
-        attackSkills.Dispose();
+        attackConfigs.Dispose();
         buffQuery.Dispose();
         attackQuery.Dispose();
     }

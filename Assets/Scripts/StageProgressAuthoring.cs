@@ -14,6 +14,9 @@ public struct StageSpawnProgress : IComponentData
 /// </summary>
 public struct StageClearState : IComponentData
 {
+    /// <summary>
+    /// 0 = not cleared, 1 = cleared。clear 後は latch して戻さない。
+    /// </summary>
     public byte IsCleared;
 }
 
@@ -171,6 +174,52 @@ public partial struct TimedSurvivalStageSystem : ISystem
 }
 
 /// <summary>
+/// StageProgress が置かれた scene だけで、各ステージ条件から clear 状態を確定する。
+/// </summary>
+[UpdateAfter(typeof(TimedSurvivalStageSystem))]
+[UpdateAfter(typeof(KillCountStageSystem))]
+[UpdateAfter(typeof(BossHealthStageSystem))]
+[UpdateBefore(typeof(MonsterSpawnDirectorSystem))]
+public partial struct StageClearSystem : ISystem
+{
+    public void OnCreate(ref SystemState state)
+    {
+        state.RequireForUpdate<StageClearState>();
+    }
+
+    public void OnUpdate(ref SystemState state)
+    {
+        foreach (var (stage, clearState) in
+                 SystemAPI.Query<RefRO<TimedSurvivalStageProgress>, RefRW<StageClearState>>())
+        {
+            clearState.ValueRW.IsCleared = StageProgressMath.LatchClearState(
+                clearState.ValueRO.IsCleared,
+                StageProgressMath.IsTimedSurvivalStageCleared(
+                    stage.ValueRO.ElapsedSeconds,
+                    stage.ValueRO.TimeLimitSeconds));
+        }
+
+        foreach (var (stage, clearState) in
+                 SystemAPI.Query<RefRO<KillCountStageProgress>, RefRW<StageClearState>>())
+        {
+            clearState.ValueRW.IsCleared = StageProgressMath.LatchClearState(
+                clearState.ValueRO.IsCleared,
+                StageProgressMath.IsKillCountStageCleared(
+                    stage.ValueRO.CurrentKillCount,
+                    stage.ValueRO.TargetKillCount));
+        }
+
+        foreach (var (stage, clearState) in
+                 SystemAPI.Query<RefRO<BossHealthStageProgress>, RefRW<StageClearState>>())
+        {
+            clearState.ValueRW.IsCleared = StageProgressMath.LatchClearState(
+                clearState.ValueRO.IsCleared,
+                StageProgressMath.IsBossStageCleared(stage.ValueRO.CurrentHp));
+        }
+    }
+}
+
+/// <summary>
 /// 討伐数ステージの共通進行度とクリア状態を更新する。
 /// </summary>
 [UpdateAfter(typeof(MonsterDestroySystem))]
@@ -227,7 +276,7 @@ public partial struct BossHealthStageSystem : ISystem
                 var health = state.EntityManager.GetComponentData<HealthComponent>(stage.ValueRO.BossEntity);
 
                 currentHp = health.CurrentHp;
-                maxHp = math.max(health.MaxHp, maxHp);
+                maxHp = math.max(1, health.MaxHp);
                 stage.ValueRW.CurrentHp = currentHp;
                 stage.ValueRW.MaxHp = maxHp;
             }

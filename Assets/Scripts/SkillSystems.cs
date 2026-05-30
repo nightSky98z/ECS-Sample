@@ -13,24 +13,25 @@ public partial struct SkillCooltimeSystem : ISystem
 
     public void OnCreate(ref SystemState state)
     {
-        state.RequireForUpdate<AttackSkillComponent>();
+        state.RequireForUpdate<AttackSkillConfig>();
+        state.RequireForUpdate<AttackSkillState>();
 
         equippedBuffSkillQuery = new EntityQueryBuilder(Allocator.Temp)
-            .WithAll<BuffSkillComponent, SkillSlotComponent, EquippedSkillTag, BuffSkillSlotTag>()
+            .WithAll<BuffSkillConfig, SkillSlotComponent, EquippedSkillTag, BuffSkillSlotTag>()
             .Build(ref state);
     }
 
     public void OnUpdate(ref SystemState state)
     {
         var deltaTime = SystemAPI.Time.DeltaTime;
-        var buffSkills = equippedBuffSkillQuery.ToComponentDataArray<BuffSkillComponent>(Allocator.Temp);
+        var buffSkills = equippedBuffSkillQuery.ToComponentDataArray<BuffSkillConfig>(Allocator.Temp);
         var buffSlots = equippedBuffSkillQuery.ToComponentDataArray<SkillSlotComponent>(Allocator.Temp);
 
-        foreach (var (skill, slot) in
-                 SystemAPI.Query<RefRW<AttackSkillComponent>, RefRO<SkillSlotComponent>>()
+        foreach (var (config, skillState, slot) in
+                 SystemAPI.Query<RefRO<AttackSkillConfig>, RefRW<AttackSkillState>, RefRO<SkillSlotComponent>>()
                      .WithAll<EquippedSkillTag, AttackSkillSlotTag>())
         {
-            if (skill.ValueRO.IsCooltime == 0)
+            if (skillState.ValueRO.IsCooltime == 0)
             {
                 continue;
             }
@@ -39,17 +40,17 @@ public partial struct SkillCooltimeSystem : ISystem
                 slot.ValueRO.Owner,
                 buffSkills,
                 buffSlots);
-            var cooltime = SkillMath.CalculateEffectiveCooltime(skill.ValueRO, buffs);
-            var nextTimer = skill.ValueRO.Timer + deltaTime;
+            var cooltime = SkillMath.CalculateEffectiveCooltime(config.ValueRO, buffs);
+            var nextTimer = skillState.ValueRO.Timer + deltaTime;
 
             if (nextTimer < cooltime)
             {
-                skill.ValueRW.Timer = nextTimer;
+                skillState.ValueRW.Timer = nextTimer;
                 continue;
             }
 
-            skill.ValueRW.Timer = 0f;
-            skill.ValueRW.IsCooltime = 0;
+            skillState.ValueRW.Timer = 0f;
+            skillState.ValueRW.IsCooltime = 0;
         }
 
         buffSlots.Dispose();
@@ -67,7 +68,7 @@ public partial struct PlayerCombatSystem : ISystem
     public void OnCreate(ref SystemState state)
     {
         state.RequireForUpdate<PlayerTag>();
-        state.RequireForUpdate<AttackSkillComponent>();
+        state.RequireForUpdate<AttackSkillState>();
     }
 
     public void OnUpdate(ref SystemState state)
@@ -87,18 +88,18 @@ public partial struct PlayerCombatSystem : ISystem
             return;
         }
 
-        var skillLookup = SystemAPI.GetComponentLookup<AttackSkillComponent>(false);
+        var skillStateLookup = SystemAPI.GetComponentLookup<AttackSkillState>(false);
         var selectedSkillEntity = Entity.Null;
         var selectedSlotIndex = int.MaxValue;
 
-        foreach (var (skill, slot, skillEntity) in
-                 SystemAPI.Query<RefRO<AttackSkillComponent>, RefRO<SkillSlotComponent>>()
+        foreach (var (_, skillState, slot, skillEntity) in
+                 SystemAPI.Query<RefRO<AttackSkillConfig>, RefRO<AttackSkillState>, RefRO<SkillSlotComponent>>()
                      .WithAll<EquippedSkillTag, AttackSkillSlotTag>()
                      .WithEntityAccess())
         {
             if (slot.ValueRO.Owner != playerEntity ||
-                skill.ValueRO.IsCooltime != 0 ||
-                skill.ValueRO.IsTriggered != 0 ||
+                skillState.ValueRO.IsCooltime != 0 ||
+                skillState.ValueRO.IsTriggered != 0 ||
                 slot.ValueRO.SlotIndex >= selectedSlotIndex)
             {
                 continue;
@@ -110,10 +111,10 @@ public partial struct PlayerCombatSystem : ISystem
 
         if (selectedSkillEntity != Entity.Null)
         {
-            var selectedSkill = skillLookup[selectedSkillEntity];
+            var selectedSkill = skillStateLookup[selectedSkillEntity];
 
             selectedSkill.IsTriggered = 1;
-            skillLookup[selectedSkillEntity] = selectedSkill;
+            skillStateLookup[selectedSkillEntity] = selectedSkill;
         }
     }
 }
@@ -131,10 +132,11 @@ public partial struct SkillLogicSystem : ISystem
 
     public void OnCreate(ref SystemState state)
     {
-        state.RequireForUpdate<AttackSkillComponent>();
+        state.RequireForUpdate<AttackSkillConfig>();
+        state.RequireForUpdate<AttackSkillState>();
 
         equippedBuffSkillQuery = new EntityQueryBuilder(Allocator.Temp)
-            .WithAll<BuffSkillComponent, SkillSlotComponent, EquippedSkillTag, BuffSkillSlotTag>()
+            .WithAll<BuffSkillConfig, SkillSlotComponent, EquippedSkillTag, BuffSkillSlotTag>()
             .Build(ref state);
         monsterQuery = new EntityQueryBuilder(Allocator.Temp)
             .WithAll<MonsterTag, LocalTransform, HealthComponent>()
@@ -146,16 +148,16 @@ public partial struct SkillLogicSystem : ISystem
         var localToWorldLookup = SystemAPI.GetComponentLookup<LocalToWorld>(true);
         var healthLookup = SystemAPI.GetComponentLookup<HealthComponent>(false);
         var hitVfxLookup = SystemAPI.GetComponentLookup<MonsterHitVfxState>(false);
-        var buffSkills = equippedBuffSkillQuery.ToComponentDataArray<BuffSkillComponent>(Allocator.Temp);
+        var buffSkills = equippedBuffSkillQuery.ToComponentDataArray<BuffSkillConfig>(Allocator.Temp);
         var buffSlots = equippedBuffSkillQuery.ToComponentDataArray<SkillSlotComponent>(Allocator.Temp);
         var monsterEntities = monsterQuery.ToEntityArray(Allocator.Temp);
         var monsterTransforms = monsterQuery.ToComponentDataArray<LocalTransform>(Allocator.Temp);
 
-        foreach (var (skill, slot) in
-                 SystemAPI.Query<RefRW<AttackSkillComponent>, RefRO<SkillSlotComponent>>()
+        foreach (var (config, skillState, slot) in
+                 SystemAPI.Query<RefRO<AttackSkillConfig>, RefRW<AttackSkillState>, RefRO<SkillSlotComponent>>()
                      .WithAll<EquippedSkillTag, AttackSkillSlotTag>())
         {
-            if (skill.ValueRO.IsTriggered == 0)
+            if (skillState.ValueRO.IsTriggered == 0)
             {
                 continue;
             }
@@ -164,7 +166,7 @@ public partial struct SkillLogicSystem : ISystem
 
             if (!localToWorldLookup.HasComponent(owner))
             {
-                skill.ValueRW.IsTriggered = 0;
+                skillState.ValueRW.IsTriggered = 0;
                 continue;
             }
 
@@ -174,17 +176,18 @@ public partial struct SkillLogicSystem : ISystem
                 buffSkills,
                 buffSlots);
 
-            switch (skill.ValueRO.LogicId)
+            switch (config.ValueRO.LogicId)
             {
                 case 0:
                     var random = new Unity.Mathematics.Random(
                         SkillSystemUtility.CreateTargetSelectionSeed(
-                            skill.ValueRO.Id,
+                            config.ValueRO.Id,
                             ownerPosition,
                             targetSelectionSequence++));
 
                     _ = SkillSystemUtility.ExecuteTargetCenteredCircleAttack(
-                        ref skill.ValueRW,
+                        config.ValueRO,
+                        ref skillState.ValueRW,
                         ownerPosition,
                         buffs,
                         ref random,
@@ -194,7 +197,7 @@ public partial struct SkillLogicSystem : ISystem
                         hitVfxLookup);
                     break;
                 default:
-                    skill.ValueRW.IsTriggered = 0;
+                    skillState.ValueRW.IsTriggered = 0;
                     break;
             }
         }
@@ -213,7 +216,7 @@ public static class SkillSystemUtility
 {
     public static BuffAccumulator CreateBuffAccumulatorForOwner(
         Entity owner,
-        NativeArray<BuffSkillComponent> buffSkills,
+        NativeArray<BuffSkillConfig> buffSkills,
         NativeArray<SkillSlotComponent> buffSlots)
     {
         var accumulator = SkillMath.CreateBuffAccumulator();
@@ -232,7 +235,8 @@ public static class SkillSystemUtility
     }
 
     public static int ExecuteTargetCenteredCircleAttack(
-        ref AttackSkillComponent skill,
+        AttackSkillConfig config,
+        ref AttackSkillState skillState,
         float3 ownerPosition,
         BuffAccumulator buffs,
         ref Unity.Mathematics.Random random,
@@ -241,7 +245,7 @@ public static class SkillSystemUtility
         ComponentLookup<HealthComponent> healthLookup,
         ComponentLookup<MonsterHitVfxState> hitVfxLookup)
     {
-        var targetRange = SkillMath.CalculateEffectiveTargetRange(skill, buffs);
+        var targetRange = SkillMath.CalculateEffectiveTargetRange(config, buffs);
 
         if (!TryFindDensityBiasedRandomMonster(
                 ownerPosition,
@@ -254,18 +258,18 @@ public static class SkillSystemUtility
                 healthLookup,
                 out var targetPosition))
         {
-            skill.IsTriggered = 0;
+            skillState.IsTriggered = 0;
             return 0;
         }
 
-        var attackRange = SkillMath.CalculateEffectiveAttackRange(skill, buffs);
+        var attackRange = SkillMath.CalculateEffectiveAttackRange(config, buffs);
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         SkillAttackRangeDebugEvents.Record(targetPosition, attackRange);
 #endif
 
         var damage = SkillMath.CalculateDamageToHp(
-            SkillMath.CalculateEffectiveDamage(skill, buffs));
+            SkillMath.CalculateEffectiveDamage(config, skillState, buffs));
         var attackRangeSq = attackRange * attackRange;
 
         var hitCount = 0;
@@ -300,9 +304,9 @@ public static class SkillSystemUtility
             hitCount++;
         }
 
-        skill.IsTriggered = 0;
-        skill.IsCooltime = 1;
-        skill.Timer = 0f;
+        skillState.IsTriggered = 0;
+        skillState.IsCooltime = 1;
+        skillState.Timer = 0f;
 
         return hitCount;
     }

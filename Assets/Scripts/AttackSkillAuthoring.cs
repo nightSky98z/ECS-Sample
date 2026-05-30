@@ -3,7 +3,7 @@ using Unity.Mathematics;
 using UnityEngine;
 
 /// <summary>
-/// SkillEntity prefab / scene object で AttackSkillComponent 定義を編集するための Authoring。
+/// SkillEntity prefab / scene object で attack skill の定義値を編集するための Authoring。
 /// </summary>
 public sealed class AttackSkillAuthoring : MonoBehaviour
 {
@@ -37,7 +37,7 @@ public sealed class AttackSkillAuthoring : MonoBehaviour
         Level = math.max(1, Level);
     }
 
-    public AttackSkillComponent CreateAttackSkill()
+    public AttackSkillDefinition CreateAttackSkill()
     {
         return AttackSkillAuthoringUtility.CreateAttackSkill(
             Id,
@@ -54,8 +54,9 @@ public sealed class AttackSkillAuthoring : MonoBehaviour
         public override void Bake(AttackSkillAuthoring authoring)
         {
             var entity = GetEntity(TransformUsageFlags.None);
+            var definition = authoring.CreateAttackSkill();
 
-            AddComponent(entity, authoring.CreateAttackSkill());
+            AddComponent(entity, definition.Config);
         }
     }
 }
@@ -65,7 +66,7 @@ public sealed class AttackSkillAuthoring : MonoBehaviour
 /// </summary>
 public static class AttackSkillAuthoringUtility
 {
-    public static AttackSkillComponent CreateAttackSkill(
+    public static AttackSkillDefinition CreateAttackSkill(
         int id,
         float baseDamage,
         float cooltime,

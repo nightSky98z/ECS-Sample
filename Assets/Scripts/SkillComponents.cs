@@ -11,7 +11,7 @@ public static class PlayerCombatConstants
 
     public const float DamageRatePerLevel = 0.1f;
     public const int TargetSelectionDirectionBucketCount = 16;
-    public const float TargetSelectionDistanceWeight = 0.35f;
+    public const float TargetSelectionDistanceWeight = 0.6f;
 }
 
 /// <summary>
@@ -27,32 +27,63 @@ public enum BuffTargetStatus
 }
 
 /// <summary>
-/// Attack skill の実行データ。
+/// Attack skill の定義値。SkillEntity prefab と slot の両方で共有する固定寄りデータ。
 /// </summary>
-public struct AttackSkillComponent : IComponentData
+public struct AttackSkillConfig : IComponentData
 {
     public int Id;
     public float BaseDamage;
     public float Cooltime;
-    public float Timer;
     public float BaseTargetRange;
     public float BaseAttackRange;
-    public int Level;
     public int LogicId;
+}
+
+/// <summary>
+/// Attack skill slot の実行状態。
+/// </summary>
+public struct AttackSkillState : IComponentData
+{
+    public float Timer;
+    public int Level;
+
+    /// <summary>
+    /// 0 = ready, 1 = cooltime running。
+    /// </summary>
     public byte IsCooltime;
+
+    /// <summary>
+    /// 0 = idle, 1 = SkillLogicSystem が今回処理する。
+    /// </summary>
     public byte IsTriggered;
 }
 
 /// <summary>
-/// Attack skill に倍率をかける passive buff skill。
+/// Attack skill に倍率をかける passive buff skill の定義値。
 /// </summary>
-public struct BuffSkillComponent : IComponentData
+public struct BuffSkillConfig : IComponentData
 {
     public int Id;
-    public int Level;
     public int LogicId;
     public float Multiplier;
     public BuffTargetStatus Target;
+}
+
+/// <summary>
+/// Buff skill の実行状態。今は level のみだが、将来 stack / duration をここへ足す。
+/// </summary>
+public struct BuffSkillState : IComponentData
+{
+    public int Level;
+}
+
+/// <summary>
+/// Authoring / default factory が返す attack skill の初期データ。
+/// </summary>
+public struct AttackSkillDefinition
+{
+    public AttackSkillConfig Config;
+    public AttackSkillState State;
 }
 
 /// <summary>
@@ -105,7 +136,7 @@ public struct BuffAccumulator
 /// </summary>
 public static class SkillDefaults
 {
-    public static AttackSkillComponent CreateDefaultAttackSkill(
+    public static AttackSkillDefinition CreateDefaultAttackSkill(
         int id,
         float baseDamage,
         float cooltime,
@@ -114,18 +145,24 @@ public static class SkillDefaults
         int level,
         int logicId)
     {
-        return new AttackSkillComponent
+        return new AttackSkillDefinition
         {
-            Id = id,
-            BaseDamage = baseDamage,
-            Cooltime = cooltime,
-            Timer = 0f,
-            BaseTargetRange = baseTargetRange,
-            BaseAttackRange = baseAttackRange,
-            Level = level,
-            LogicId = logicId,
-            IsCooltime = 0,
-            IsTriggered = 0
+            Config = new AttackSkillConfig
+            {
+                Id = id,
+                BaseDamage = baseDamage,
+                Cooltime = cooltime,
+                BaseTargetRange = baseTargetRange,
+                BaseAttackRange = baseAttackRange,
+                LogicId = logicId
+            },
+            State = new AttackSkillState
+            {
+                Timer = 0f,
+                Level = level,
+                IsCooltime = 0,
+                IsTriggered = 0
+            }
         };
     }
 }

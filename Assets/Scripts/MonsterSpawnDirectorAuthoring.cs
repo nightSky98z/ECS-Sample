@@ -1,5 +1,6 @@
 using Unity.Entities;
 using Unity.Mathematics;
+using Unity.Rendering;
 using Unity.Transforms;
 using UnityEngine;
 using UnityEngine.Serialization;
@@ -843,6 +844,12 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
                      DynamicBuffer<MonsterSpawnPrefabElement>,
                      DynamicBuffer<MonsterSpawnStageTuningElement>>())
         {
+            if (isStageCleared)
+            {
+                recycleScanActive = false;
+                continue;
+            }
+
             if (recycleScanActive ||
                 ShouldRunRecycleScan(ref state, config.ValueRO.RecycleCheckIntervalSeconds))
             {
@@ -855,11 +862,6 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
             }
 
             if (monsterPrefabs.Length == 0)
-            {
-                continue;
-            }
-
-            if (isStageCleared)
             {
                 continue;
             }
@@ -1427,12 +1429,12 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
         Entity entity,
         float4 restColor)
     {
-        if (!state.EntityManager.HasComponent<MonsterMaterialBaseColor>(entity))
+        if (!state.EntityManager.HasComponent<URPMaterialPropertyBaseColor>(entity))
         {
             return;
         }
 
-        state.EntityManager.SetComponentData(entity, new MonsterMaterialBaseColor
+        state.EntityManager.SetComponentData(entity, new URPMaterialPropertyBaseColor
         {
             Value = restColor
         });

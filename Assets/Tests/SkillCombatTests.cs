@@ -13,6 +13,7 @@ public sealed class SkillCombatTests
         Assert.AreEqual(5, PlayerCombatConstants.MaxAttackSkillCount);
         Assert.AreEqual(5, PlayerCombatConstants.MaxBuffSkillCount);
         Assert.AreEqual(10, PlayerCombatConstants.MaxSkillCount);
+        Assert.AreEqual(0.6f, PlayerCombatConstants.TargetSelectionDistanceWeight);
     }
 
     [Test]
@@ -27,11 +28,11 @@ public sealed class SkillCombatTests
             1,
             0);
 
-        Assert.AreEqual(0, skill.Id);
-        Assert.AreEqual(0, skill.LogicId);
-        Assert.AreEqual(0, skill.IsCooltime);
-        Assert.AreEqual(0, skill.IsTriggered);
-        Assert.AreEqual(0f, skill.Timer);
+        Assert.AreEqual(0, skill.Config.Id);
+        Assert.AreEqual(0, skill.Config.LogicId);
+        Assert.AreEqual(0, skill.State.IsCooltime);
+        Assert.AreEqual(0, skill.State.IsTriggered);
+        Assert.AreEqual(0f, skill.State.Timer);
     }
 
     [Test]
@@ -46,55 +47,58 @@ public sealed class SkillCombatTests
             level: 2,
             logicId: 0);
 
-        Assert.AreEqual(4, skill.Id);
-        Assert.AreEqual(25f, skill.BaseDamage);
-        Assert.AreEqual(0.75f, skill.Cooltime);
-        Assert.AreEqual(18f, skill.BaseTargetRange);
-        Assert.AreEqual(6f, skill.BaseAttackRange);
-        Assert.AreEqual(2, skill.Level);
-        Assert.AreEqual(0, skill.LogicId);
-        Assert.AreEqual(0, skill.IsCooltime);
-        Assert.AreEqual(0, skill.IsTriggered);
+        Assert.AreEqual(4, skill.Config.Id);
+        Assert.AreEqual(25f, skill.Config.BaseDamage);
+        Assert.AreEqual(0.75f, skill.Config.Cooltime);
+        Assert.AreEqual(18f, skill.Config.BaseTargetRange);
+        Assert.AreEqual(6f, skill.Config.BaseAttackRange);
+        Assert.AreEqual(2, skill.State.Level);
+        Assert.AreEqual(0, skill.Config.LogicId);
+        Assert.AreEqual(0, skill.State.IsCooltime);
+        Assert.AreEqual(0, skill.State.IsTriggered);
     }
 
     [Test]
     public void AttackSkillMathAppliesLevelAndBuffMultipliers()
     {
-        var skill = new AttackSkillComponent
+        var config = new AttackSkillConfig
         {
             BaseDamage = 10f,
             Cooltime = 2f,
             BaseTargetRange = 20f,
             BaseAttackRange = 3f,
+        };
+        var skillState = new AttackSkillState
+        {
             Level = 3
         };
         var buffs = SkillMath.CreateBuffAccumulator();
 
-        buffs = SkillMath.ApplyBuff(buffs, new BuffSkillComponent
+        buffs = SkillMath.ApplyBuff(buffs, new BuffSkillConfig
         {
             Multiplier = 2f,
             Target = BuffTargetStatus.Damage
         });
-        buffs = SkillMath.ApplyBuff(buffs, new BuffSkillComponent
+        buffs = SkillMath.ApplyBuff(buffs, new BuffSkillConfig
         {
             Multiplier = 0.5f,
             Target = BuffTargetStatus.Cooltime
         });
-        buffs = SkillMath.ApplyBuff(buffs, new BuffSkillComponent
+        buffs = SkillMath.ApplyBuff(buffs, new BuffSkillConfig
         {
             Multiplier = 1.5f,
             Target = BuffTargetStatus.AttackRange
         });
-        buffs = SkillMath.ApplyBuff(buffs, new BuffSkillComponent
+        buffs = SkillMath.ApplyBuff(buffs, new BuffSkillConfig
         {
             Multiplier = 1.25f,
             Target = BuffTargetStatus.TargetRange
         });
 
-        Assert.AreEqual(24f, SkillMath.CalculateEffectiveDamage(skill, buffs), 0.0001f);
-        Assert.AreEqual(1f, SkillMath.CalculateEffectiveCooltime(skill, buffs), 0.0001f);
-        Assert.AreEqual(25f, SkillMath.CalculateEffectiveTargetRange(skill, buffs), 0.0001f);
-        Assert.AreEqual(4.5f, SkillMath.CalculateEffectiveAttackRange(skill, buffs), 0.0001f);
+        Assert.AreEqual(24f, SkillMath.CalculateEffectiveDamage(config, skillState, buffs), 0.0001f);
+        Assert.AreEqual(1f, SkillMath.CalculateEffectiveCooltime(config, buffs), 0.0001f);
+        Assert.AreEqual(25f, SkillMath.CalculateEffectiveTargetRange(config, buffs), 0.0001f);
+        Assert.AreEqual(4.5f, SkillMath.CalculateEffectiveAttackRange(config, buffs), 0.0001f);
         Assert.AreEqual(24, SkillMath.CalculateDamageToHp(23.1f));
     }
 
@@ -105,6 +109,7 @@ public sealed class SkillCombatTests
 
         StringAssert.Contains("CreateAdditionalEntity", source);
         StringAssert.Contains("DefaultAttackSkillEntity", source);
+        StringAssert.Contains("DependsOn(authoring.DefaultAttackSkillEntity)", source);
         StringAssert.Contains("CreateDefaultAttackSkill", source);
         StringAssert.Contains("PlayerCombatConstants.MaxAttackSkillCount", source);
         StringAssert.Contains("PlayerCombatConstants.MaxBuffSkillCount", source);
@@ -123,6 +128,9 @@ public sealed class SkillCombatTests
         StringAssert.Contains("EquippedSkillTag", source);
         StringAssert.Contains("AttackSkillSlotTag", source);
         StringAssert.Contains("BuffSkillSlotTag", source);
+        StringAssert.Contains("SystemAPI.Query<RefRO<AttackSkillConfig>, RefRO<AttackSkillState>, RefRO<SkillSlotComponent>>", source);
+        StringAssert.Contains("AttackSkillConfig", source);
+        StringAssert.Contains("AttackSkillState", source);
         StringAssert.Contains("HealthMath.ApplyHealthDelta", source);
         StringAssert.Contains("MonsterHitVfxState", source);
         StringAssert.Contains("hitCount", source);
@@ -141,6 +149,7 @@ public sealed class SkillCombatTests
 
         StringAssert.Contains("SkillEntity", source);
         StringAssert.Contains("CreateAttackSkill", source);
+        Assert.IsFalse(source.Contains("AddComponent(entity, definition.State)"));
         Assert.IsFalse(source.Contains("SkillSlotComponent"));
         Assert.IsFalse(source.Contains("EquippedSkillTag"));
         Assert.IsFalse(source.Contains("AttackSkillSlotTag"));

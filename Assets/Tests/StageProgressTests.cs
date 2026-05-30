@@ -1,4 +1,5 @@
 using NUnit.Framework;
+using System.IO;
 
 public sealed class StageProgressTests
 {
@@ -52,5 +53,26 @@ public sealed class StageProgressTests
         Assert.AreEqual(1, StageProgressMath.LatchClearState(1, false));
         Assert.AreEqual(1, StageProgressMath.LatchClearState(0, true));
         Assert.AreEqual(0, StageProgressMath.LatchClearState(0, false));
+    }
+
+    [Test]
+    public void StageClearSystemIsExplicitAndRequiresStageClearState()
+    {
+        var source = File.ReadAllText("Assets/Scripts/StageProgressAuthoring.cs");
+
+        StringAssert.Contains("StageClearSystem", source);
+        StringAssert.Contains("RequireForUpdate<StageClearState>", source);
+        StringAssert.Contains("SystemAPI.Time.DeltaTime", source);
+        Assert.IsFalse(source.Contains("Time.unscaledDeltaTime"));
+    }
+
+    [Test]
+    public void BossHealthStageUsesRuntimeBossMaxHp()
+    {
+        var source = File.ReadAllText("Assets/Scripts/StageProgressAuthoring.cs");
+
+        StringAssert.Contains("state.EntityManager.GetComponentData<HealthComponent>", source);
+        StringAssert.Contains("maxHp = math.max(1, health.MaxHp)", source);
+        Assert.IsFalse(source.Contains("math.max(health.MaxHp, maxHp)"));
     }
 }

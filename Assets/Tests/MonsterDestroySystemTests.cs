@@ -49,6 +49,18 @@ public sealed class MonsterDestroySystemTests
     }
 
     [Test]
+    public void CalculateHitVfxFirstFrameUsesHitColor()
+    {
+        var hit = new float4(1f, 0f, 0f, 1f);
+        var rest = new float4(0f, 1f, 0f, 1f);
+        var progress = MonsterHitVfxMath.CalculateProgress(0f, 0.12f);
+
+        var color = MonsterHitVfxMath.CalculateBaseColor(hit, rest, progress);
+
+        Assert.AreEqual(hit, color);
+    }
+
+    [Test]
     public void MonsterEntityBakesDestroyVfxConfig()
     {
         var source = File.ReadAllText("Assets/Scripts/MonsterEntity.cs");
@@ -80,6 +92,7 @@ public sealed class MonsterDestroySystemTests
 
         StringAssert.Contains("Baker<Renderer>", source);
         StringAssert.Contains("GetComponentInParent<MonsterEntity>(true)", source);
+        StringAssert.Contains("URPMaterialPropertyBaseColor", source);
         Assert.IsFalse(source.Contains("AddMaterialBaseColorComponents(authoring)"));
     }
 
@@ -90,7 +103,7 @@ public sealed class MonsterDestroySystemTests
 
         StringAssert.Contains("MonsterTag", source);
         StringAssert.Contains("HealthComponent", source);
-        StringAssert.Contains("MonsterMaterialBaseColor", source);
+        StringAssert.Contains("URPMaterialPropertyBaseColor", source);
         StringAssert.Contains("RemoveComponent<Velocity>", source);
         StringAssert.Contains("DestroyLinkedEntityGroup", source);
         StringAssert.Contains("LinkedEntityGroup", source);
@@ -127,9 +140,26 @@ public sealed class MonsterDestroySystemTests
         var source = File.ReadAllText("Assets/Scripts/MonsterHitVfxSystem.cs");
 
         StringAssert.Contains("MonsterHitVfxState", source);
-        StringAssert.Contains("MonsterMaterialBaseColor", source);
+        StringAssert.Contains("URPMaterialPropertyBaseColor", source);
         StringAssert.Contains("WithNone<MonsterDestroyVfxState>", source);
+        StringAssert.Contains("vfxState.ValueRO.ElapsedTime", source);
+        StringAssert.Contains("entityCommandBuffer.SetComponent(entity, color)", source);
         Assert.IsFalse(source.Contains("AddComponent(entity, color)"));
         Assert.IsFalse(source.Contains("Request"));
+    }
+
+    [Test]
+    public void MonsterVfxUsesUnityRenderingBaseColorOverride()
+    {
+        var componentSource = File.ReadAllText("Assets/Scripts/MonsterDestroyComponents.cs");
+        var destroySource = File.ReadAllText("Assets/Scripts/MonsterDestroySystem.cs");
+        var hitSource = File.ReadAllText("Assets/Scripts/MonsterHitVfxSystem.cs");
+
+        Assert.IsFalse(componentSource.Contains("MaterialProperty(\"_BaseColor\")"));
+        Assert.IsFalse(componentSource.Contains("MonsterMaterialBaseColor"));
+        StringAssert.Contains("URPMaterialPropertyBaseColor", destroySource);
+        StringAssert.Contains("URPMaterialPropertyBaseColor", hitSource);
+        Assert.IsFalse(destroySource.Contains("AddComponent(entity, color)"));
+        Assert.IsFalse(hitSource.Contains("AddComponent(entity, color)"));
     }
 }

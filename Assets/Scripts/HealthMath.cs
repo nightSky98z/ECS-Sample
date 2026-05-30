@@ -16,6 +16,11 @@ public static class HealthMath
         };
     }
 
+    public static HealthComponent CreateFullHealth(int maxHp)
+    {
+        return CreateHealth(maxHp, maxHp);
+    }
+
     public static HealthComponent ApplyHealthDelta(HealthComponent health, int delta)
     {
         var safeMaxHp = NormalizeMaxHp(health.MaxHp);

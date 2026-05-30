@@ -15,27 +15,21 @@ public sealed class HealthTests
     [Test]
     public void ApplyHealthDeltaClampsDamageAndHeal()
     {
-        var health = new HealthComponent
-        {
-            CurrentHp = 50,
-            MaxHp = 100
-        };
+        var health = new HealthComponent { CurrentHp = 50, MaxHp = 100 };
 
         var damaged = HealthMath.ApplyHealthDelta(health, -80);
         var healed = HealthMath.ApplyHealthDelta(health, 80);
 
         Assert.AreEqual(0, damaged.CurrentHp);
         Assert.AreEqual(100, healed.CurrentHp);
+        Assert.AreEqual(100, damaged.MaxHp);
+        Assert.AreEqual(100, healed.MaxHp);
     }
 
     [Test]
     public void ApplyHealthDeltaHandlesLargeHealWithoutOverflow()
     {
-        var health = new HealthComponent
-        {
-            CurrentHp = 50,
-            MaxHp = 100
-        };
+        var health = new HealthComponent { CurrentHp = 50, MaxHp = 100 };
 
         var healed = HealthMath.ApplyHealthDelta(health, int.MaxValue);
 
@@ -45,16 +39,8 @@ public sealed class HealthTests
     [Test]
     public void IsDeadTreatsZeroHpAsDead()
     {
-        var alive = new HealthComponent
-        {
-            CurrentHp = 1,
-            MaxHp = 100
-        };
-        var dead = new HealthComponent
-        {
-            CurrentHp = 0,
-            MaxHp = 100
-        };
+        var alive = new HealthComponent { CurrentHp = 1, MaxHp = 100 };
+        var dead = new HealthComponent { CurrentHp = 0, MaxHp = 100 };
 
         Assert.IsFalse(HealthMath.IsDead(alive));
         Assert.IsTrue(HealthMath.IsDead(dead));
@@ -69,5 +55,16 @@ public sealed class HealthTests
         Assert.IsFalse(componentText.Contains("HealthChangeRequest"));
         Assert.IsFalse(healthText.Contains("HealthChangeRequest"));
         Assert.IsFalse(healthText.Contains("EntityCommandBuffer"));
+    }
+
+    [Test]
+    public void HealthKeepsMutableMaxHpWithRuntimeState()
+    {
+        var componentText = File.ReadAllText("Assets/Scripts/MyComponents.cs");
+
+        StringAssert.Contains("public struct HealthComponent", componentText);
+        StringAssert.Contains("public int MaxHp", componentText);
+        StringAssert.Contains("public int CurrentHp", componentText);
+        Assert.IsFalse(componentText.Contains("public struct HealthConfig"));
     }
 }

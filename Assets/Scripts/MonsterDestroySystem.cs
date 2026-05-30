@@ -67,7 +67,7 @@ public partial struct MonsterDestroySystem : ISystem
                 ref state,
                 ref startCommandBuffer,
                 entity,
-                new MonsterMaterialBaseColor
+                new URPMaterialPropertyBaseColor
                 {
                     Value = config.ValueRO.StartBaseColor
                 });
@@ -130,7 +130,7 @@ public partial struct MonsterDestroySystem : ISystem
                 ref state,
                 ref updateCommandBuffer,
                 entity,
-                new MonsterMaterialBaseColor
+                new URPMaterialPropertyBaseColor
                 {
                     Value = baseColor
                 });
@@ -328,7 +328,7 @@ public partial struct MonsterDestroySystem : ISystem
                 ref state,
                 ref entityCommandBuffer,
                 entity,
-                new MonsterMaterialBaseColor
+                new URPMaterialPropertyBaseColor
                 {
                     Value = state.EntityManager.GetComponentData<MonsterHitVfxConfig>(entity).RestBaseColor
                 });
@@ -341,7 +341,7 @@ public partial struct MonsterDestroySystem : ISystem
         ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
         Entity rootEntity,
-        MonsterMaterialBaseColor color)
+        URPMaterialPropertyBaseColor color)
     {
         if (!state.EntityManager.HasBuffer<LinkedEntityGroup>(rootEntity))
         {
@@ -365,17 +365,15 @@ public partial struct MonsterDestroySystem : ISystem
         ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
         Entity entity,
-        MonsterMaterialBaseColor color)
+        URPMaterialPropertyBaseColor color)
     {
-        if (!state.EntityManager.HasComponent<MaterialMeshInfo>(entity))
+        if (!state.EntityManager.HasComponent<MaterialMeshInfo>(entity) ||
+            !state.EntityManager.HasComponent<URPMaterialPropertyBaseColor>(entity))
         {
             return;
         }
 
-        if (state.EntityManager.HasComponent<MonsterMaterialBaseColor>(entity))
-        {
-            entityCommandBuffer.SetComponent(entity, color);
-        }
+        entityCommandBuffer.SetComponent(entity, color);
     }
 
     private void DestroyLinkedEntityGroup(

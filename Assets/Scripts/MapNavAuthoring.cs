@@ -81,6 +81,9 @@ public struct MapNavCellData : IComponentData
 [InternalBufferCapacity(0)]
 public struct MapNavTile : IBufferElementData
 {
+    /// <summary>
+    /// 0 = blocked, 1 = walkable。
+    /// </summary>
     public byte Walkable;
     public int Cost;
     public float2 Direction;
@@ -94,6 +97,10 @@ public struct MapNavFlowState : IComponentData
     public int2 GoalTile;
     public float2 GoalDirection;
     public int Version;
+
+    /// <summary>
+    /// 0 = reachable goal なし, 1 = reachable goal あり。
+    /// </summary>
     public byte HasReachableGoal;
 }
 
