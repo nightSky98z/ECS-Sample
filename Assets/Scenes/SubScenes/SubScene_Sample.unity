@@ -163,7 +163,7 @@ Transform:
   m_GameObject: {fileID: 8364255}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0.62, z: 0}
+  m_LocalPosition: {x: 0, y: 2.08, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -217,13 +217,73 @@ MonoBehaviour:
   - Prefab: {fileID: 4767580578360462080, guid: e630f7cb243ae4101b43116687ef507c, type: 3}
     Weight: 1
   MonsterPrefab: {fileID: 4767580578360462080, guid: e630f7cb243ae4101b43116687ef507c, type: 3}
-  SpawnCountPerCell: -1
-  MinSpawnCountPerCell: 100
-  MaxSpawnCountPerCell: 400
-  MinSpawnDistanceFromPlayer: 30
-  MaxSpawnDistanceFromPlayer: 42
-  CellSpawnPadding: 8
+  SpawnIntervalSeconds: 1
+  SpawnCountPerInterval: 400
+  MaxAliveMonsterCount: 1000
+  MinSpawnDistanceFromPlayer: 40
+  MaxSpawnDistanceFromPlayer: 60
+  RecycleDistanceFromPlayer: 76
+  RecycleCheckIntervalSeconds: 0.2
+  MaxRecycleChecksPerFrame: 100
   RandomSeed: 1
+  StageTunings: []
+--- !u!1001 &640512236
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: 1002000000000000001, guid: 123d46177df9405c9a91d6556f609c3b, type: 3}
+      propertyPath: m_Name
+      value: StageProgress_KillCount
+      objectReference: {fileID: 0}
+    - target: {fileID: 1002000000000000002, guid: 123d46177df9405c9a91d6556f609c3b, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: -2.99095
+      objectReference: {fileID: 0}
+    - target: {fileID: 1002000000000000002, guid: 123d46177df9405c9a91d6556f609c3b, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1002000000000000002, guid: 123d46177df9405c9a91d6556f609c3b, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 1.65012
+      objectReference: {fileID: 0}
+    - target: {fileID: 1002000000000000002, guid: 123d46177df9405c9a91d6556f609c3b, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 1002000000000000002, guid: 123d46177df9405c9a91d6556f609c3b, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1002000000000000002, guid: 123d46177df9405c9a91d6556f609c3b, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1002000000000000002, guid: 123d46177df9405c9a91d6556f609c3b, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1002000000000000002, guid: 123d46177df9405c9a91d6556f609c3b, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1002000000000000002, guid: 123d46177df9405c9a91d6556f609c3b, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1002000000000000002, guid: 123d46177df9405c9a91d6556f609c3b, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: 123d46177df9405c9a91d6556f609c3b, type: 3}
 --- !u!1 &1122845690
 GameObject:
   m_ObjectHideFlags: 0
@@ -234,6 +294,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1122845691}
   - component: {fileID: 1122845692}
+  - component: {fileID: 1122845693}
   m_Layer: 0
   m_Name: MapCellAuthoring
   m_TagString: Untagged
@@ -276,10 +337,26 @@ MonoBehaviour:
   CellSize: 100
   LoadRadiusInCells: 1
   GroundY: 0
+--- !u!114 &1122845693
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1122845690}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 817e52f597efb63e593176d3aed3e777, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MapNavAuthoring
+  GridSize: {x: 50, y: 50}
+  TileSize: 2
+  AgentRadius: 0.5
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
+  - {fileID: 640512236}
   - {fileID: 8364258}
   - {fileID: 1122845691}
   - {fileID: 264714536}

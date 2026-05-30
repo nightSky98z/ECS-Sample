@@ -185,7 +185,15 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::MonsterEntity
   CollisionRadius: 0.5
   MoveSpeed: 2.5
+  MaxHp: 30
+  RecycleAfterDeath: 1
   GravityAcceleration: -9.81
+  DestroyVfxDuration: 0.45
+  DestroyVfxStartColor: {r: 1, g: 0.2, b: 0.05, a: 1}
+  DestroyVfxEndColor: {r: 0.05, g: 0.05, b: 0.05, a: 0}
+  DestroyVfxEndScale: 0.05
+  HitVfxDuration: 0.12
+  HitVfxColor: {r: 1, g: 1, b: 1, a: 1}
 --- !u!1 &8252434431847263442
 GameObject:
   m_ObjectHideFlags: 0
