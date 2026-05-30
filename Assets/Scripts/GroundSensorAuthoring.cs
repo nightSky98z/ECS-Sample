@@ -8,7 +8,7 @@ public sealed class GroundSensorAuthoring : MonoBehaviour
 {
     [SerializeField]
     [Min(0f)]
-    [Tooltip("接地判定に使う sphere の半径。Transform scale も反映される。")]
+    [Tooltip("接地判定に使う球の半径。Transform のスケールも反映される。")]
     private float Radius = 0.1f;
 
     [SerializeField]

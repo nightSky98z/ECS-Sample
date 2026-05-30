@@ -21,12 +21,15 @@ public sealed class HealthBarOverlay : MonoBehaviour
     private static readonly Color BackgroundColor = new Color(0.35f, 0.35f, 0.35f, 1f);
     private static readonly Color FrontColor = new Color(0.92f, 0.08f, 0.08f, 1f);
 
+    [Tooltip("HP バーを投影するカメラ。未指定なら MainCamera を使う。")]
     [SerializeField]
     private Camera TargetCamera;
 
+    [Tooltip("HP バーを配置する Canvas。未指定なら ScreenSpaceOverlay の Canvas を自動生成する。")]
     [SerializeField]
     private Canvas TargetCanvas;
 
+    [Tooltip("頭上 HP バーとして複製する UI プレハブ。未指定なら Resources/HP_Bar を探す。")]
     [SerializeField]
     private GameObject HealthBarPrefab;
 
@@ -34,9 +37,11 @@ public sealed class HealthBarOverlay : MonoBehaviour
     [SerializeField]
     private float MaxVisibleDistance = 80f;
 
+    [Tooltip("HP バー表示を有効にする。Debug や負荷確認時に無効化できる。")]
     [SerializeField]
     private bool ShowHealthBars = true;
 
+    [Tooltip("起動時に事前生成する HP バー数。多いほど初回生成負荷を減らせる。")]
     [SerializeField]
     private int InitialPoolCapacity = 64;
 

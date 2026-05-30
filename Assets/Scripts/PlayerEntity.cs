@@ -24,13 +24,15 @@ public struct PlayerInput : IComponentData
 /// </summary>
 public class PlayerEntity : MonoBehaviour
 {
-    [Tooltip("XZ 平面のゲーム用接触半径。MovementSystem の押し戻しに使う。")]
+    [Tooltip("XZ 平面のゲーム用接触半径。MovementSystem の押し戻しで使う。")]
     [SerializeField]
     private float CollisionRadius = 0.5f;
 
+    [Tooltip("XZ 平面の入力移動速度。レベルアップでは変更しない。")]
     [SerializeField]
     private float MoveSpeed = 5f;
 
+    [Tooltip("ノックバック速度を 1 秒あたりどれだけ減衰させるか。大きいほど早く止まる。")]
     [SerializeField]
     private float KnockbackDecayPerSecond = 18f;
 
@@ -38,33 +40,60 @@ public class PlayerEntity : MonoBehaviour
     [SerializeField]
     private int MaxHp = 100;
 
+    [Tooltip("レベルアップごとに増える最大 HP。MoveSpeed はレベルアップでは変更しない。")]
+    [SerializeField]
+    private int MaxHpPerLevel = 5;
+
+    [Tooltip("プレイヤーレベル 1 ごとのスキルダメージ加算率。0.02 はレベルごとに +2%。")]
+    [SerializeField]
+    private float SkillDamageRatePerLevel = ExperienceConstants.DefaultSkillDamageRatePerLevel;
+
+    [Tooltip("Lv1 から Lv2 に必要な経験値。")]
+    [SerializeField]
+    private int BaseRequiredExperience = ExperienceConstants.BaseRequiredExperience;
+
+    [Tooltip("次レベルの必要経験値に掛ける倍率。2 なら常に前レベルの 2 倍。")]
+    [SerializeField]
+    private float RequiredExperienceMultiplierPerLevel = ExperienceConstants.DefaultRequiredExperienceMultiplierPerLevel;
+
     [Tooltip("Velocity.y に加える重力加速度。")]
     [SerializeField]
     private float GravityAcceleration = -9.81f;
 
+    [Tooltip("低 FPS ですり抜けた時、最後に記録した地面高さより何 m 下で救済するか。0 は無効。")]
+    [SerializeField]
+    private float FallRescueDepth = 3f;
+
     [Header("Default Attack Skill")]
-    [Tooltip("SkillEntity 定義 prefab。slot にはこの定義から作った実行データだけをコピーする。")]
+    [Tooltip("SkillEntity 定義プレハブ。スロットにはこの定義から作った実行データだけをコピーする。")]
     [SerializeField]
     private AttackSkillAuthoring DefaultAttackSkillEntity = null;
 
+    [Tooltip("DefaultAttackSkillEntity が未指定の場合に使う攻撃スキル ID。")]
     [SerializeField]
     private int DefaultAttackSkillId = 0;
 
+    [Tooltip("DefaultAttackSkillEntity が未指定の場合に使う基礎ダメージ。")]
     [SerializeField]
     private float DefaultAttackSkillBaseDamage = 10f;
 
+    [Tooltip("DefaultAttackSkillEntity が未指定の場合に使うクールタイム秒。")]
     [SerializeField]
     private float DefaultAttackSkillCooltime = 1f;
 
+    [Tooltip("DefaultAttackSkillEntity が未指定の場合に使うターゲット探索半径。")]
     [SerializeField]
     private float DefaultAttackSkillBaseTargetRange = 30f;
 
+    [Tooltip("DefaultAttackSkillEntity が未指定の場合に使う攻撃範囲半径。")]
     [SerializeField]
     private float DefaultAttackSkillBaseAttackRange = 4f;
 
+    [Tooltip("DefaultAttackSkillEntity が未指定の場合に使う初期スキルレベル。")]
     [SerializeField]
     private int DefaultAttackSkillLevel = 1;
 
+    [Tooltip("DefaultAttackSkillEntity が未指定の場合に使う攻撃ロジック ID。")]
     [SerializeField]
     private int DefaultAttackSkillLogicId = 0;
 
@@ -75,6 +104,12 @@ public class PlayerEntity : MonoBehaviour
         DefaultAttackSkillBaseTargetRange = math.max(0f, DefaultAttackSkillBaseTargetRange);
         DefaultAttackSkillBaseAttackRange = math.max(0f, DefaultAttackSkillBaseAttackRange);
         DefaultAttackSkillLevel = math.max(1, DefaultAttackSkillLevel);
+        MaxHp = math.max(1, MaxHp);
+        MaxHpPerLevel = math.max(0, MaxHpPerLevel);
+        SkillDamageRatePerLevel = math.max(0f, SkillDamageRatePerLevel);
+        BaseRequiredExperience = math.max(1, BaseRequiredExperience);
+        RequiredExperienceMultiplierPerLevel = math.max(1f, RequiredExperienceMultiplierPerLevel);
+        FallRescueDepth = math.max(0f, FallRescueDepth);
     }
 
     private class Baker : Unity.Entities.Baker<PlayerEntity>
@@ -110,7 +145,21 @@ public class PlayerEntity : MonoBehaviour
                 Value = float3.zero,
                 DecayPerSecond = authoring.KnockbackDecayPerSecond
             });
+            var experienceLevelConfig = new ExperienceLevelConfig
+            {
+                BaseRequiredExperience = authoring.BaseRequiredExperience,
+                RequiredExperienceMultiplierPerLevel = authoring.RequiredExperienceMultiplierPerLevel
+            };
+
             AddComponent(entity, HealthMath.CreateFullHealth(authoring.MaxHp));
+            AddComponent(entity, experienceLevelConfig);
+            AddComponent(entity, ExperienceMath.CreateInitialExperience(experienceLevelConfig));
+            AddComponent(entity, new PlayerLevelStats
+            {
+                BaseMaxHp = authoring.MaxHp,
+                MaxHpPerLevel = authoring.MaxHpPerLevel,
+                SkillDamageRatePerLevel = authoring.SkillDamageRatePerLevel
+            });
             AddComponent(entity, new CollisionRadius
             {
                 Value = authoring.CollisionRadius
@@ -123,6 +172,10 @@ public class PlayerEntity : MonoBehaviour
             {
                 GroundY = 0f,
                 IsGrounded = 0
+            });
+            AddComponent(entity, new GroundFallRescue
+            {
+                MaxBelowGroundY = authoring.FallRescueDepth
             });
             AddComponent(entity, new FacingDirection
             {

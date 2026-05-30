@@ -6,7 +6,7 @@ using UnityEngine;
 /// </summary>
 public sealed partial class HealthBarAnchorAuthoring : MonoBehaviour
 {
-    [Tooltip("RectTransform がない場合に使う HP bar の UI size。")]
+    [Tooltip("RectTransform がない場合に使う HP バーの UI サイズ。")]
     [SerializeField]
     private Vector2 FallbackSize = new Vector2(100f, 12f);
 

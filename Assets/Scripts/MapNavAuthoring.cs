@@ -11,17 +11,17 @@ using UnityEngine;
 public sealed class MapNavAuthoring : MonoBehaviour
 {
     [SerializeField]
-    [Tooltip("Tile count inside one Map Cell. 50 x 50 with tile size 2 covers a 100 x 100 cell.")]
+    [Tooltip("1 つのマップセル内のタイル数。タイルサイズ 2 で 50 x 50 なら 100 x 100 のセルを覆う。")]
     private Vector2Int GridSize = new Vector2Int(50, 50);
 
     [SerializeField]
     [Min(0.1f)]
-    [Tooltip("World size of one navigation tile.")]
+    [Tooltip("ナビゲーションタイル 1 枚のワールドサイズ。")]
     private float TileSize = 2f;
 
     [SerializeField]
     [Min(0f)]
-    [Tooltip("Horizontal radius used when obstacle AABBs are rasterized into blocked tiles.")]
+    [Tooltip("障害物 AABB を通行不可タイルへラスタライズするときに使う水平半径。")]
     private float AgentRadius = 0.5f;
 
     private void OnValidate()

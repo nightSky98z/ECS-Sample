@@ -8,17 +8,17 @@ using UnityEngine;
 public sealed class BossHealthStageAuthoring : MonoBehaviour
 {
     [SerializeField]
-    [Tooltip("Optional boss GameObject. If omitted, another system can write BossEntity later.")]
+    [Tooltip("任意のボス GameObject。未指定の場合、別のシステムが後で BossEntity を書き込める。")]
     private GameObject Boss;
 
     [SerializeField]
     [Min(1)]
-    [Tooltip("Boss max HP used to calculate progress.")]
+    [Tooltip("進行度計算に使うボス最大 HP。")]
     private int MaxHp = 1000;
 
     [SerializeField]
     [Min(0)]
-    [Tooltip("Initial remaining HP.")]
+    [Tooltip("初期残り HP。")]
     private int InitialCurrentHp = 1000;
 
     private void OnValidate()

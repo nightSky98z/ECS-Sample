@@ -88,11 +88,82 @@ public sealed class DebugOptionsOverlayTests
     {
         var source = File.ReadAllText("Assets/Scripts/DebugOptionsOverlay.cs");
 
+        StringAssert.Contains("Level 表示", source);
         StringAssert.Contains("Player Collider Wireframe", source);
         StringAssert.Contains("Skill Target Range", source);
         StringAssert.Contains("Skill Attack Range", source);
         StringAssert.Contains("DebugOptionsRuntimeDrawer.Draw", source);
         StringAssert.Contains("LateUpdate", source);
+    }
+
+    [Test]
+    public void DebugOptionsFormatsPlayerLevelText()
+    {
+        var experience = new ExperienceComponent
+        {
+            Level = 12,
+            CurrentExperience = 34,
+            RequiredExperience = 100
+        };
+
+        Assert.AreEqual("Lv 12  EXP 34 / 100", DebugOptionsOverlayMath.FormatLevelText(experience));
+    }
+
+    [Test]
+    public void DebugOptionsFormatsSkillSlotIconText()
+    {
+        var config = new AttackSkillConfig
+        {
+            Id = 7
+        };
+
+        Assert.AreEqual(
+            "7",
+            DebugOptionsOverlayMath.FormatAttackSkillSlotIconText(true, config));
+        Assert.AreEqual(
+            "-",
+            DebugOptionsOverlayMath.FormatAttackSkillSlotIconText(false, config));
+
+        config.Id = 123;
+        Assert.AreEqual(
+            "99+",
+            DebugOptionsOverlayMath.FormatAttackSkillSlotIconText(true, config));
+    }
+
+    [Test]
+    public void DebugOptionsLevelDisplayIsDevelopmentOnlyAndUsesPlayerExperience()
+    {
+        var source = File.ReadAllText("Assets/Scripts/DebugOptionsOverlay.cs");
+
+        StringAssert.StartsWith("#if UNITY_EDITOR || DEVELOPMENT_BUILD", source);
+        StringAssert.Contains("levelRoot", source);
+        StringAssert.Contains("levelOverlayText", source);
+        StringAssert.Contains("ReadPlayerExperience", source);
+        StringAssert.Contains("ComponentType.ReadOnly<ExperienceComponent>()", source);
+        StringAssert.Contains("ComponentType.ReadOnly<PlayerTag>()", source);
+    }
+
+    [Test]
+    public void DebugOptionsSkillSlotDisplayReadsEquippedSlots()
+    {
+        var source = File.ReadAllText("Assets/Scripts/DebugOptionsOverlay.cs");
+
+        StringAssert.Contains("スキルスロット表示", source);
+        StringAssert.Contains("slotRoot", source);
+        StringAssert.Contains("slotIconBuffer", source);
+        StringAssert.Contains("slotIconImages", source);
+        StringAssert.Contains("slotIconTexts", source);
+        StringAssert.Contains("SlotOverlayY = 80f", source);
+        StringAssert.Contains("SlotIconSize = 18f", source);
+        StringAssert.Contains("ReadPlayerSkillSlotIcons(slotIconBuffer)", source);
+        StringAssert.Contains("UpdateSkillSlotIcons", source);
+        StringAssert.Contains("ComponentType.ReadOnly<SkillSlotComponent>()", source);
+        StringAssert.Contains("ComponentType.ReadOnly<AttackSkillSlotTag>()", source);
+        StringAssert.Contains("ComponentType.ReadOnly<BuffSkillSlotTag>()", source);
+        StringAssert.Contains("EquippedSkillTag", source);
+        Assert.IsFalse(source.Contains("UpdateSkillSlotIcons(ReadPlayerSkillSlotIcons())"));
+        Assert.IsFalse(source.Contains("FormatSkillSlotLines"));
+        Assert.IsFalse(source.Contains("FormatAttackSkillSlotText("));
     }
 
     [Test]

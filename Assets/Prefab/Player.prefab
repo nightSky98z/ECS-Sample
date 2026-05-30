@@ -232,6 +232,10 @@ MonoBehaviour:
   MoveSpeed: 5
   KnockbackDecayPerSecond: 18
   MaxHp: 100
+  MaxHpPerLevel: 5
+  SkillDamageRatePerLevel: 0.1
+  BaseRequiredExperience: 50
+  RequiredExperienceMultiplierPerLevel: 2
   GravityAcceleration: -9.81
   DefaultAttackSkillEntity: {fileID: 6118745201134000003, guid: e36a6cb0231c4d948b5e88aa9102c316, type: 3}
   DefaultAttackSkillId: 0

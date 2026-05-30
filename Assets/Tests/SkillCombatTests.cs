@@ -96,6 +96,7 @@ public sealed class SkillCombatTests
         });
 
         Assert.AreEqual(24f, SkillMath.CalculateEffectiveDamage(config, skillState, buffs), 0.0001f);
+        Assert.AreEqual(36f, SkillMath.CalculateEffectiveDamage(config, skillState, buffs, 1.5f), 0.0001f);
         Assert.AreEqual(1f, SkillMath.CalculateEffectiveCooltime(config, buffs), 0.0001f);
         Assert.AreEqual(25f, SkillMath.CalculateEffectiveTargetRange(config, buffs), 0.0001f);
         Assert.AreEqual(4.5f, SkillMath.CalculateEffectiveAttackRange(config, buffs), 0.0001f);
@@ -131,6 +132,9 @@ public sealed class SkillCombatTests
         StringAssert.Contains("SystemAPI.Query<RefRO<AttackSkillConfig>, RefRO<AttackSkillState>, RefRO<SkillSlotComponent>>", source);
         StringAssert.Contains("AttackSkillConfig", source);
         StringAssert.Contains("AttackSkillState", source);
+        StringAssert.Contains("ExperienceComponent", source);
+        StringAssert.Contains("PlayerLevelStats", source);
+        StringAssert.Contains("CalculatePlayerSkillDamageRate", source);
         StringAssert.Contains("HealthMath.ApplyHealthDelta", source);
         StringAssert.Contains("MonsterHitVfxState", source);
         StringAssert.Contains("hitCount", source);

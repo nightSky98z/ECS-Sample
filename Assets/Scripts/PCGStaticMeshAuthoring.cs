@@ -10,37 +10,37 @@ using UnityEngine;
 public partial class PCGStaticMeshAuthoring : MonoBehaviour
 {
     [SerializeField]
-    [Tooltip("Static mesh prefab candidates and their relative weights. Entries with weight 0 or less are ignored.")]
+    [Tooltip("スタティックメッシュのプレハブ候補と相対的な重み。重みが 0 以下の要素は無視される。")]
     private PCGStaticMeshPrefabEntry[] StaticMeshEntries = new PCGStaticMeshPrefabEntry[0];
 
     [SerializeField]
     [HideInInspector]
-    [Tooltip("Legacy prefab array. Migrated as weight 1 entries when StaticMeshEntries is empty.")]
+    [Tooltip("旧形式のプレハブ配列。StaticMeshEntries が空の場合、重み 1 の候補として扱う。")]
     private GameObject[] StaticMeshPrefabs = new GameObject[0];
 
     [SerializeField]
     [Min(0)]
-    [Tooltip("Static mesh instances generated inside this cell prefab. 0 disables generation.")]
+    [Tooltip("このセルプレハブ内に生成するスタティックメッシュ数。0 は生成無効。")]
     private int InstanceCount = 32;
 
     [SerializeField]
-    [Tooltip("Local PCG seed for this cell prefab.")]
+    [Tooltip("このセルプレハブ用のローカル PCG シード。")]
     private int RandomSeed = 1;
 
     [SerializeField]
-    [Tooltip("Local XZ area size used for generated static mesh roots.")]
+    [Tooltip("生成するスタティックメッシュのルートに使うローカル XZ 範囲。")]
     private Vector2 AreaSize = new Vector2(100f, 100f);
 
     [SerializeField]
-    [Tooltip("Local Y position used for generated static mesh roots.")]
+    [Tooltip("生成するスタティックメッシュのルートに使うローカル Y 座標。")]
     private float GroundY = 0f;
 
     [SerializeField]
-    [Tooltip("Uniform scale range per placement. Negative values are normalized to absolute values.")]
+    [Tooltip("配置ごとの均一スケール範囲。負の値は絶対値に正規化される。")]
     private Vector2 ScaleRange = new Vector2(1f, 1f);
 
     [SerializeField]
-    [Tooltip("Adds a random yaw rotation to each placement when enabled.")]
+    [Tooltip("有効にすると各配置にランダムなヨー回転を加える。")]
     private bool RandomizeYaw = true;
 
     private void OnValidate()
@@ -234,11 +234,11 @@ public partial class PCGStaticMeshAuthoring : MonoBehaviour
 [System.Serializable]
 public struct PCGStaticMeshPrefabEntry
 {
-    [Tooltip("Prefab candidate to place. Use a prefab with renderable meshes.")]
+    [Tooltip("配置するプレハブ候補。描画可能なメッシュを持つプレハブを使う。")]
     public GameObject Prefab;
 
     [Min(0f)]
-    [Tooltip("Relative selection weight. 0 disables this candidate.")]
+    [Tooltip("相対的な選択重み。0 にするとこの候補は無効になる。")]
     public float Weight;
 }
 

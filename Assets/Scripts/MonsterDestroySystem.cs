@@ -1,7 +1,6 @@
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.Rendering;
 using Unity.Transforms;
 
 /// <summary>
@@ -24,10 +23,12 @@ public partial struct MonsterDestroySystem : ISystem
     {
         var startCommandBuffer = new EntityCommandBuffer(Allocator.Temp);
         var killedMonsterCount = 0;
+        var gainedExperience = 0L;
+        var experienceRewardLookup = SystemAPI.GetComponentLookup<ExperienceReward>(true);
 
-        foreach (var (health, config, transform, entity) in
-                 SystemAPI.Query<RefRO<HealthComponent>, RefRO<MonsterDestroyVfxConfig>, RefRO<LocalTransform>>()
-                     .WithAll<MonsterTag>()
+        foreach (var (health, transform, entity) in
+                 SystemAPI.Query<RefRO<HealthComponent>, RefRO<LocalTransform>>()
+                     .WithAll<MonsterTag, MonsterDestroyVfxConfig>()
                      .WithNone<MonsterDestroyVfxState>()
                      .WithEntityAccess())
         {
@@ -48,6 +49,11 @@ public partial struct MonsterDestroySystem : ISystem
             });
             killedMonsterCount++;
 
+            if (experienceRewardLookup.HasComponent(entity))
+            {
+                gainedExperience += ExperienceMath.NormalizeReward(experienceRewardLookup[entity].Value);
+            }
+
             if (state.EntityManager.HasComponent<Velocity>(entity))
             {
                 if (state.EntityManager.HasComponent<MonsterRecycleTag>(entity))
@@ -63,15 +69,6 @@ public partial struct MonsterDestroySystem : ISystem
                 }
             }
 
-            AddOrSetMaterialColorForLinkedRenderEntities(
-                ref state,
-                ref startCommandBuffer,
-                entity,
-                new URPMaterialPropertyBaseColor
-                {
-                    Value = config.ValueRO.StartBaseColor
-                });
-
             if (state.EntityManager.HasComponent<CollisionRadius>(entity))
             {
                 startCommandBuffer.SetComponent(entity, new CollisionRadius
@@ -86,10 +83,16 @@ public partial struct MonsterDestroySystem : ISystem
             AddKillCount(ref state, killedMonsterCount);
         }
 
+        if (gainedExperience > 0L)
+        {
+            AddExperienceToPlayers(
+                ref state,
+                gainedExperience > int.MaxValue ? int.MaxValue : (int)gainedExperience);
+        }
+
         startCommandBuffer.Playback(state.EntityManager);
         startCommandBuffer.Dispose();
 
-        var deltaTime = SystemAPI.Time.DeltaTime;
         var updateCommandBuffer = new EntityCommandBuffer(Allocator.Temp);
         var hasRecycleContext = TryGetDeathRecycleContext(
             ref state,
@@ -112,53 +115,64 @@ public partial struct MonsterDestroySystem : ISystem
                      .WithAll<MonsterTag>()
                      .WithEntityAccess())
         {
-            var nextElapsedTime = vfxState.ValueRO.ElapsedTime + deltaTime;
             var progress = MonsterDestroyVfxMath.CalculateProgress(
-                nextElapsedTime,
+                vfxState.ValueRO.ElapsedTime,
                 config.ValueRO.Duration);
-            var baseColor = MonsterDestroyVfxMath.CalculateBaseColor(
-                config.ValueRO.StartBaseColor,
-                config.ValueRO.EndBaseColor,
-                progress);
 
-            vfxState.ValueRW.ElapsedTime = nextElapsedTime;
-            transform.ValueRW.Scale = MonsterDestroyVfxMath.CalculateScale(
-                vfxState.ValueRO.OriginalScale,
-                config.ValueRO.EndScale,
-                progress);
-            AddOrSetMaterialColorForLinkedRenderEntities(
-                ref state,
-                ref updateCommandBuffer,
-                entity,
-                new URPMaterialPropertyBaseColor
-                {
-                    Value = baseColor
-                });
-
-            if (progress >= 1f)
+            if (progress < 1f)
             {
-                if (hasRecycleContext &&
-                    state.EntityManager.HasComponent<MonsterRecycleTag>(entity))
-                {
-                    RecycleMonsterAfterDeathVfx(
-                        ref state,
-                        ref updateCommandBuffer,
-                        entity,
-                        ref transform.ValueRW,
-                        vfxState.ValueRO,
-                        recycleConfig,
-                        playerPosition,
-                        groundY,
-                        ref recycleRandom);
-                    continue;
-                }
-
-                DestroyLinkedEntityGroup(ref state, ref updateCommandBuffer, entity);
+                continue;
             }
+
+            if (hasRecycleContext &&
+                state.EntityManager.HasComponent<MonsterRecycleTag>(entity))
+            {
+                RecycleMonsterAfterDeathVfx(
+                    ref state,
+                    ref updateCommandBuffer,
+                    entity,
+                    ref transform.ValueRW,
+                    vfxState.ValueRO,
+                    recycleConfig,
+                    playerPosition,
+                    groundY,
+                    ref recycleRandom);
+                continue;
+            }
+
+            DestroyLinkedEntityGroup(ref state, ref updateCommandBuffer, entity);
         }
 
         updateCommandBuffer.Playback(state.EntityManager);
         updateCommandBuffer.Dispose();
+    }
+
+    private void AddExperienceToPlayers(ref SystemState state, int gainedExperience)
+    {
+        if (gainedExperience <= 0)
+        {
+            return;
+        }
+
+        var levelConfigLookup = SystemAPI.GetComponentLookup<ExperienceLevelConfig>(true);
+
+        foreach (var (experience, entity) in
+                 SystemAPI.Query<RefRW<ExperienceComponent>>()
+                     .WithAll<PlayerTag>()
+                     .WithEntityAccess())
+        {
+            var levelConfig = levelConfigLookup.HasComponent(entity)
+                ? levelConfigLookup[entity]
+                : ExperienceMath.CreateDefaultLevelConfig();
+            var nextExperience = ExperienceMath.AddExperience(
+                experience.ValueRO,
+                gainedExperience,
+                levelConfig);
+
+            experience.ValueRW.CurrentExperience = nextExperience.CurrentExperience;
+            experience.ValueRW.RequiredExperience = nextExperience.RequiredExperience;
+            experience.ValueRW.Level = nextExperience.Level;
+        }
     }
 
     private void AddKillCount(ref SystemState state, int killedMonsterCount)
@@ -324,56 +338,14 @@ public partial struct MonsterDestroySystem : ISystem
 
         if (state.EntityManager.HasComponent<MonsterHitVfxConfig>(entity))
         {
-            AddOrSetMaterialColorForLinkedRenderEntities(
+            VFXMaterialUtility.AddOrSetBaseColorForLinkedRenderEntities(
                 ref state,
                 ref entityCommandBuffer,
                 entity,
-                new URPMaterialPropertyBaseColor
-                {
-                    Value = state.EntityManager.GetComponentData<MonsterHitVfxConfig>(entity).RestBaseColor
-                });
+                state.EntityManager.GetComponentData<MonsterHitVfxConfig>(entity).RestBaseColor);
         }
 
         entityCommandBuffer.RemoveComponent<MonsterDestroyVfxState>(entity);
-    }
-
-    private void AddOrSetMaterialColorForLinkedRenderEntities(
-        ref SystemState state,
-        ref EntityCommandBuffer entityCommandBuffer,
-        Entity rootEntity,
-        URPMaterialPropertyBaseColor color)
-    {
-        if (!state.EntityManager.HasBuffer<LinkedEntityGroup>(rootEntity))
-        {
-            AddOrSetMaterialColorForRenderEntity(ref state, ref entityCommandBuffer, rootEntity, color);
-            return;
-        }
-
-        var linkedEntities = state.EntityManager.GetBuffer<LinkedEntityGroup>(rootEntity);
-
-        for (var linkedEntityIndex = 0; linkedEntityIndex < linkedEntities.Length; linkedEntityIndex++)
-        {
-            AddOrSetMaterialColorForRenderEntity(
-                ref state,
-                ref entityCommandBuffer,
-                linkedEntities[linkedEntityIndex].Value,
-                color);
-        }
-    }
-
-    private void AddOrSetMaterialColorForRenderEntity(
-        ref SystemState state,
-        ref EntityCommandBuffer entityCommandBuffer,
-        Entity entity,
-        URPMaterialPropertyBaseColor color)
-    {
-        if (!state.EntityManager.HasComponent<MaterialMeshInfo>(entity) ||
-            !state.EntityManager.HasComponent<URPMaterialPropertyBaseColor>(entity))
-        {
-            return;
-        }
-
-        entityCommandBuffer.SetComponent(entity, color);
     }
 
     private void DestroyLinkedEntityGroup(

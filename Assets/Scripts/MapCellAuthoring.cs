@@ -63,30 +63,30 @@ public struct MapCellOwnedEntity : IComponentData
 public sealed class MapCellAuthoring : MonoBehaviour
 {
     [SerializeField]
-    [Tooltip("Cell prefab candidates instantiated around the player. Entries with weight 0 or less are ignored.")]
+    [Tooltip("プレイヤー周辺に生成するセルプレハブ候補。重みが 0 以下の要素は無視される。")]
     private MapCellPrefabEntry[] CellPrefabs = new MapCellPrefabEntry[0];
 
     [SerializeField]
     [HideInInspector]
-    [Tooltip("Legacy single cell prefab. Migrated as weight 1 when CellPrefabs is empty.")]
+    [Tooltip("旧形式の単一セルプレハブ。CellPrefabs が空の場合、重み 1 の候補として扱う。")]
     private GameObject CellPrefab;
 
     [SerializeField]
-    [Tooltip("World seed used to choose deterministic cell prefabs per coordinate.")]
+    [Tooltip("座標ごとに決定的なセルプレハブを選ぶためのワールドシード。")]
     private int RandomSeed = 1;
 
     [SerializeField]
     [Min(0.1f)]
-    [Tooltip("Cell edge length on the XZ plane. Use 100 for a Unity Plane scaled to 10.")]
+    [Tooltip("XZ 平面上のセル一辺の長さ。スケール 10 の Unity Plane なら 100 を使う。")]
     private float CellSize = 100f;
 
     [SerializeField]
     [Min(0)]
-    [Tooltip("Radius kept loaded around the player. 1 means the current cell plus 8 neighbors.")]
+    [Tooltip("プレイヤー周辺でロード維持する半径。1 は現在セルと周囲 8 セルを意味する。")]
     private int LoadRadiusInCells = 1;
 
     [SerializeField]
-    [Tooltip("Y position used for each cell prefab root.")]
+    [Tooltip("各セルプレハブのルートに使う Y 座標。")]
     private float GroundY = 0f;
 
     private void OnValidate()
@@ -203,11 +203,11 @@ public sealed class MapCellAuthoring : MonoBehaviour
 [System.Serializable]
 public struct MapCellPrefabEntry
 {
-    [Tooltip("Cell prefab candidate. Its root transform is placed at the cell center.")]
+    [Tooltip("セルプレハブ候補。ルート Transform はセル中心に配置される。")]
     public GameObject Prefab;
 
     [Min(0f)]
-    [Tooltip("Relative selection weight. 0 disables this candidate.")]
+    [Tooltip("相対的な選択重み。0 にするとこの候補は無効になる。")]
     public float Weight;
 }
 

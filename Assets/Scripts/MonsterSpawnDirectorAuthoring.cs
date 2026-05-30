@@ -52,81 +52,81 @@ public struct MonsterSpawnPrefabElement : IBufferElementData
 public sealed class MonsterSpawnDirectorAuthoring : MonoBehaviour
 {
     [SerializeField]
-    [Tooltip("Monster prefab candidates instantiated by timed spawn. Entries with weight 0 or less are ignored.")]
+    [Tooltip("時間スポーンで生成するモンスタープレハブ候補。重みが 0 以下の要素は無視される。")]
     private MonsterSpawnPrefabEntry[] MonsterPrefabs = new MonsterSpawnPrefabEntry[0];
 
     [SerializeField]
     [HideInInspector]
-    [Tooltip("Legacy single monster prefab. Migrated as weight 1 when MonsterPrefabs is empty.")]
+    [Tooltip("旧形式の単一モンスタープレハブ。MonsterPrefabs が空の場合、重み 1 の候補として扱う。")]
     private GameObject MonsterPrefab;
 
     [SerializeField]
     [Min(0f)]
-    [Tooltip("Seconds between timed monster spawn batches. 0 spawns every frame.")]
+    [Tooltip("時間スポーンのバッチ間隔秒。0 は毎フレーム生成。")]
     private float SpawnIntervalSeconds = 1f;
 
     [SerializeField]
     [Min(0)]
-    [Tooltip("Monster count spawned by one timed spawn batch. 0 disables timed spawning.")]
+    [Tooltip("1 回の時間スポーンバッチで生成するモンスター数。0 は時間スポーン無効。")]
     private int SpawnCountPerInterval = 8;
 
     [SerializeField]
     [Min(0)]
-    [Tooltip("Maximum alive normal monsters controlled by this director. 0 disables timed spawning.")]
+    [Tooltip("このディレクターが制御する通常モンスターの最大生存数。0 は時間スポーン無効。")]
     private int MaxAliveMonsterCount = 400;
 
     [SerializeField]
     [Min(0)]
-    [Tooltip("Desired normal monster count around the player. Used to refill combat density after the player escapes.")]
+    [Tooltip("プレイヤー周辺に維持したい通常モンスター数。プレイヤーが逃げた後の戦闘密度補充に使う。")]
     private int NearbyMonsterTargetCount = 80;
 
     [SerializeField]
     [Min(0)]
-    [Tooltip("When nearby monster count is below this value, distant normal monsters are recycled near the player.")]
+    [Tooltip("周辺モンスター数がこの値を下回ると、遠距離の通常モンスターをプレイヤー近くへ再配置する。")]
     private int NearbyMonsterLowThreshold = 50;
 
     [SerializeField]
     [Min(0f)]
-    [Tooltip("XZ radius used to count nearby normal monsters. Keep this at least as large as Max Spawn Distance.")]
+    [Tooltip("周辺通常モンスター数を数える XZ 半径。最大スポーン距離以上にする。")]
     private float NearbyMonsterRadius = 48f;
 
     [SerializeField]
     [Min(0f)]
-    [Tooltip("Minimum XZ distance from the player. Use this as the off-screen spawn radius.")]
+    [Tooltip("プレイヤーからの最小 XZ 距離。画面外スポーン半径として使う。")]
     private float MinSpawnDistanceFromPlayer = 18f;
 
     [SerializeField]
     [Min(0f)]
-    [Tooltip("Maximum XZ distance from the player. Keep this inside the loaded map cell area.")]
+    [Tooltip("プレイヤーからの最大 XZ 距離。ロード済みマップセル範囲内に収める。")]
     private float MaxSpawnDistanceFromPlayer = 42f;
 
     [SerializeField]
     [Range(0f, 1f)]
-    [Tooltip("0 means fully random around player. 1 means spawn only in the player's forward half-space.")]
+    [Tooltip("0 はプレイヤー周囲へ完全ランダム生成。1 はプレイヤー前方半空間だけに生成。")]
     private float ForwardSpawnBias = 0.65f;
 
     [SerializeField]
     [Min(0f)]
     [FormerlySerializedAs("DespawnDistanceFromPlayer")]
-    [Tooltip("Monsters farther than this XZ distance from the player are recycled to a new off-screen position. 0 disables distance recycle.")]
+    [Tooltip("プレイヤーからこの XZ 距離より遠いモンスターを新しい画面外位置へ再配置する。0 は距離再配置無効。")]
     private float RecycleDistanceFromPlayer = 96f;
 
     [SerializeField]
     [Min(0f)]
-    [Tooltip("Seconds between far monster recycle scans. 0 checks every frame.")]
+    [Tooltip("遠距離モンスター再配置スキャンの間隔秒。0 は毎フレーム確認。")]
     private float RecycleCheckIntervalSeconds = 0.2f;
 
     [SerializeField]
     [Min(1)]
-    [Tooltip("Maximum monsters inspected by one recycle scan. Keep this small for stable frame time.")]
+    [Tooltip("1 回の再配置スキャンで検査する最大モンスター数。フレーム時間安定のため小さめにする。")]
     private int MaxRecycleChecksPerFrame = 100;
 
     [SerializeField]
-    [Tooltip("World seed used to create deterministic timed monster placements.")]
+    [Tooltip("決定的な時間スポーン配置を作るためのワールドシード。")]
     private int RandomSeed = 1;
 
     [SerializeField]
-    [Tooltip("Runtime timed spawn settings chosen by stage progress. The highest reached MinStageProgress wins.")]
+    [Tooltip("ステージ進行度で選ぶ実行時の時間スポーン設定。到達済みの MinStageProgress が最も高い設定を使う。")]
     private MonsterSpawnStageTuningEntry[] StageTunings = new MonsterSpawnStageTuningEntry[0];
 
     private void OnValidate()
@@ -317,11 +317,11 @@ public sealed class MonsterSpawnDirectorAuthoring : MonoBehaviour
 [System.Serializable]
 public struct MonsterSpawnPrefabEntry
 {
-    [Tooltip("Monster prefab candidate. Use a prefab with MonsterEntity authoring.")]
+    [Tooltip("モンスタープレハブ候補。MonsterEntity Authoring を持つプレハブを使う。")]
     public GameObject Prefab;
 
     [Min(0f)]
-    [Tooltip("Relative selection weight. 0 disables this candidate.")]
+    [Tooltip("相対的な選択重み。0 にするとこの候補は無効になる。")]
     public float Weight;
 }
 
@@ -332,15 +332,15 @@ public struct MonsterSpawnPrefabEntry
 public struct MonsterSpawnStageTuningEntry
 {
     [Min(0f)]
-    [Tooltip("This setting is used when StageSpawnProgress is greater than or equal to this value.")]
+    [Tooltip("StageSpawnProgress がこの値以上のとき、この設定を使う。")]
     public float MinStageProgress;
 
     [Min(0f)]
-    [Tooltip("Seconds between timed monster spawn batches.")]
+    [Tooltip("時間スポーンのバッチ間隔秒。")]
     public float SpawnIntervalSeconds;
 
     [Min(0)]
-    [Tooltip("Monster count spawned by one timed spawn batch.")]
+    [Tooltip("1 回の時間スポーンバッチで生成するモンスター数。")]
     public int SpawnCountPerInterval;
 }
 

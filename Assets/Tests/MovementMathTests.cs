@@ -172,6 +172,34 @@ public sealed class MovementMathTests
     }
 
     [Test]
+    public void RescueFallenBelowGroundUsesLastKnownGroundY()
+    {
+        var result = PhysicsMath.RescueFallenBelowGround(
+            new float3(2f, -3.25f, 4f),
+            new float3(1f, -12f, 5f),
+            0.5f,
+            1.5f);
+
+        Assert.AreEqual(new float3(2f, 0.5f, 4f), result.Position);
+        Assert.AreEqual(new float3(1f, 0f, 5f), result.Velocity);
+        Assert.AreEqual(1, result.IsGrounded);
+    }
+
+    [Test]
+    public void RescueFallenBelowGroundDoesNothingInsideAllowedDepth()
+    {
+        var result = PhysicsMath.RescueFallenBelowGround(
+            new float3(2f, -0.25f, 4f),
+            new float3(1f, -12f, 5f),
+            0.5f,
+            1.5f);
+
+        Assert.AreEqual(new float3(2f, -0.25f, 4f), result.Position);
+        Assert.AreEqual(new float3(1f, -12f, 5f), result.Velocity);
+        Assert.AreEqual(0, result.IsGrounded);
+    }
+
+    [Test]
     public void CalculateGroundSensorWorldShapeUsesEntityTransform()
     {
         var sensor = new GroundSensor

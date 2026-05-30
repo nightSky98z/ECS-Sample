@@ -38,6 +38,43 @@ public struct HealthComponent : IComponentData
 }
 
 /// <summary>
+/// Entity の経験値とレベル。CurrentExperience / Level は runtime 状態、RequiredExperience は現在レベルの必要量。
+/// </summary>
+public struct ExperienceComponent : IComponentData
+{
+    public int CurrentExperience;
+    public int RequiredExperience;
+    public int Level;
+}
+
+/// <summary>
+/// Player ごとの level up 必要経験値曲線。RequiredExperienceMultiplierPerLevel は前 level 必要量への倍率。
+/// </summary>
+public struct ExperienceLevelConfig : IComponentData
+{
+    public int BaseRequiredExperience;
+    public float RequiredExperienceMultiplierPerLevel;
+}
+
+/// <summary>
+/// Monster が死亡時に player へ渡す経験値。
+/// </summary>
+public struct ExperienceReward : IComponentData
+{
+    public int Value;
+}
+
+/// <summary>
+/// Player level から runtime status を再計算するための固定寄りデータ。
+/// </summary>
+public struct PlayerLevelStats : IComponentData
+{
+    public int BaseMaxHp;
+    public int MaxHpPerLevel;
+    public float SkillDamageRatePerLevel;
+}
+
+/// <summary>
 /// UI や debug 用の表示名。FixedString なので component 内に所有する。
 /// </summary>
 public struct EntityDisplayName : IComponentData
@@ -81,6 +118,14 @@ public struct GroundSnap : IComponentData
     /// 0 = airborne, 1 = grounded。
     /// </summary>
     public byte IsGrounded;
+}
+
+/// <summary>
+/// 低 FPS などで接地判定をすり抜けた Entity を最後に記録した地面高さへ戻す設定。
+/// </summary>
+public struct GroundFallRescue : IComponentData
+{
+    public float MaxBelowGroundY;
 }
 
 /// <summary>

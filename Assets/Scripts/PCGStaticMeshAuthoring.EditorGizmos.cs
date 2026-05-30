@@ -12,7 +12,7 @@ public partial class PCGStaticMeshAuthoring
     private const int MaxPreviewInstances = 512;
 
     [SerializeField]
-    [Tooltip("Draws the PCG placement preview in the Scene View. Not included in player builds.")]
+    [Tooltip("シーンビューに PCG 配置プレビューを描画する。プレイヤービルドには含まれない。")]
     private bool DrawPlacementPreview = true;
 
     private readonly List<MeshFilter> PreviewMeshFilters = new List<MeshFilter>();

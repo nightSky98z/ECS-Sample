@@ -9,12 +9,12 @@ public sealed class TimedSurvivalStageAuthoring : MonoBehaviour
 {
     [SerializeField]
     [Min(0f)]
-    [Tooltip("Stage clears when elapsed seconds reaches this value. 0 disables auto clear.")]
+    [Tooltip("経過秒数がこの値に到達するとステージクリアになる。0 は自動クリア無効。")]
     private float TimeLimitSeconds = 300f;
 
     [SerializeField]
     [Min(0f)]
-    [Tooltip("Initial elapsed seconds.")]
+    [Tooltip("初期経過秒数。")]
     private float InitialElapsedSeconds = 0f;
 
     private void OnValidate()

@@ -23,31 +23,57 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
     private const float ResizeHandleSize = 18f;
     private const float FpsRefreshSeconds = 0.25f;
     private const float FpsToggleY = 72f;
-    private const float PlayerColliderToggleY = 100f;
-    private const float SkillTargetRangeToggleY = 128f;
-    private const float SkillAttackRangeToggleY = 156f;
-    private const float WindowFpsY = 184f;
+    private const float LevelToggleY = 100f;
+    private const float SkillSlotToggleY = 128f;
+    private const float PlayerColliderToggleY = 156f;
+    private const float SkillTargetRangeToggleY = 184f;
+    private const float SkillAttackRangeToggleY = 212f;
+    private const float WindowFpsY = 240f;
+    private const float SlotOverlayX = 12f;
+    private const float SlotOverlayY = 80f;
+    private const float SlotOverlayWidth = 144f;
+    private const float SlotOverlayHeight = 52f;
+    private const float SlotRowLabelX = 6f;
+    private const float SlotAttackRowY = 4f;
+    private const float SlotBuffRowY = 28f;
+    private const float SlotIconStartX = 24f;
+    private const float SlotIconSize = 18f;
+    private const float SlotIconGap = 4f;
 
-    private static readonly Vector2 DefaultWindowSize = new Vector2(320f, 220f);
-    private static readonly Vector2 MinimumWindowSize = new Vector2(260f, 160f);
+    private static readonly Vector2 DefaultWindowSize = new Vector2(320f, 276f);
+    private static readonly Vector2 MinimumWindowSize = new Vector2(260f, 216f);
     private static readonly Color WindowBackgroundColor = new Color(0f, 0f, 0f, 0.36f);
     private static readonly Color CheckboxOnColor = new Color(0.92f, 0.92f, 0.92f, 1f);
     private static readonly Color CheckboxOffColor = new Color(0.06f, 0.06f, 0.06f, 1f);
     private static readonly Color TextColor = Color.white;
+    private static readonly Color SlotEmptyColor = new Color(0.05f, 0.05f, 0.05f, 0.72f);
+    private static readonly Color SlotReadyColor = new Color(0.08f, 0.38f, 0.18f, 0.92f);
+    private static readonly Color SlotCooltimeColor = new Color(0.42f, 0.28f, 0.08f, 0.92f);
+    private static readonly Color SlotTriggeredColor = new Color(0.18f, 0.28f, 0.62f, 0.92f);
+    private static readonly Color SlotBuffColor = new Color(0.30f, 0.16f, 0.42f, 0.92f);
 
     private Rect windowRect;
     private Canvas overlayCanvas;
     private RectTransform windowRoot;
     private RectTransform fpsRoot;
+    private RectTransform levelRoot;
+    private RectTransform slotRoot;
     private RectTransform resizeHandleRect;
     private Text fpsOverlayText;
+    private Text levelOverlayText;
+    private Text slotAttackLabelText;
+    private Text slotBuffLabelText;
     private Text windowFpsText;
     private Image fpsCheckboxImage;
+    private Image levelCheckboxImage;
+    private Image slotCheckboxImage;
     private Image playerColliderCheckboxImage;
     private Image skillTargetRangeCheckboxImage;
     private Image skillAttackRangeCheckboxImage;
     private bool isWindowOpen;
     private bool isFpsVisible;
+    private bool isLevelVisible;
+    private bool isSkillSlotVisible;
     private bool isPlayerColliderWireframeVisible;
     private bool isSkillTargetRangeVisible;
     private bool isSkillAttackRangeVisible;
@@ -61,6 +87,15 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
     private float fps;
     private float fpsElapsedSeconds;
     private int fpsFrameCount;
+    private readonly SkillSlotIconData[] slotIconBuffer = new SkillSlotIconData[PlayerCombatConstants.MaxSkillCount];
+    private readonly Image[] slotIconImages = new Image[PlayerCombatConstants.MaxSkillCount];
+    private readonly Text[] slotIconTexts = new Text[PlayerCombatConstants.MaxSkillCount];
+
+    private struct SkillSlotIconData
+    {
+        public string Text;
+        public Color Color;
+    }
 
     /// <summary>
     /// Scene に手動配置しなくても debug overlay を 1 つだけ作る。
@@ -203,10 +238,18 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         if (overlayCanvas != null &&
             windowRoot != null &&
             fpsRoot != null &&
+            levelRoot != null &&
+            slotRoot != null &&
             resizeHandleRect != null &&
             fpsOverlayText != null &&
+            levelOverlayText != null &&
+            slotAttackLabelText != null &&
+            slotBuffLabelText != null &&
+            AreSkillSlotIconsReady() &&
             windowFpsText != null &&
             fpsCheckboxImage != null &&
+            levelCheckboxImage != null &&
+            slotCheckboxImage != null &&
             playerColliderCheckboxImage != null &&
             skillTargetRangeCheckboxImage != null &&
             skillAttackRangeCheckboxImage != null)
@@ -230,6 +273,20 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         CreateImage("fps-background", fpsRoot, WindowBackgroundColor);
         fpsOverlayText = CreateText("fps-text", fpsRoot, 20, FontStyle.Normal);
 
+        levelRoot = CreateRect("level-root", overlayCanvas.transform);
+        CreateImage("level-background", levelRoot, WindowBackgroundColor);
+        levelOverlayText = CreateText("level-text", levelRoot, 18, FontStyle.Normal);
+
+        slotRoot = CreateRect("slot-root", overlayCanvas.transform);
+        CreateImage("slot-background", slotRoot, WindowBackgroundColor);
+        slotAttackLabelText = CreateText("slot-attack-label", slotRoot, 11, FontStyle.Bold);
+        slotAttackLabelText.alignment = TextAnchor.MiddleCenter;
+        slotAttackLabelText.text = "A";
+        slotBuffLabelText = CreateText("slot-buff-label", slotRoot, 11, FontStyle.Bold);
+        slotBuffLabelText.alignment = TextAnchor.MiddleCenter;
+        slotBuffLabelText.text = "B";
+        CreateSkillSlotIcons();
+
         windowRoot = CreateRect("window-root", overlayCanvas.transform);
         CreateImage("window-background", windowRoot, WindowBackgroundColor);
 
@@ -245,6 +302,8 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         optionsText.text = "Options";
 
         fpsCheckboxImage = CreateCheckboxRow(windowRoot, FpsToggleY, "FPS 表示");
+        levelCheckboxImage = CreateCheckboxRow(windowRoot, LevelToggleY, "Level 表示");
+        slotCheckboxImage = CreateCheckboxRow(windowRoot, SkillSlotToggleY, "スキルスロット表示");
         playerColliderCheckboxImage = CreateCheckboxRow(
             windowRoot,
             PlayerColliderToggleY,
@@ -273,6 +332,36 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
             ResizeHandleSize);
 
         return true;
+    }
+
+    private bool AreSkillSlotIconsReady()
+    {
+        for (var iconIndex = 0; iconIndex < slotIconImages.Length; iconIndex++)
+        {
+            if (slotIconImages[iconIndex] == null || slotIconTexts[iconIndex] == null)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private void CreateSkillSlotIcons()
+    {
+        for (var iconIndex = 0; iconIndex < slotIconImages.Length; iconIndex++)
+        {
+            var iconImage = CreateImage($"slot-icon-{iconIndex}", slotRoot, SlotEmptyColor);
+            var iconText = CreateText($"slot-icon-{iconIndex}-text", iconImage.transform, 10, FontStyle.Bold);
+
+            iconText.alignment = TextAnchor.MiddleCenter;
+            iconText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            iconText.verticalOverflow = VerticalWrapMode.Overflow;
+            iconText.text = "-";
+
+            slotIconImages[iconIndex] = iconImage;
+            slotIconTexts[iconIndex] = iconText;
+        }
     }
 
     private void ProcessPointerInput()
@@ -366,6 +455,18 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
             return true;
         }
 
+        if (GetToggleRect(LevelToggleY).Contains(mousePosition))
+        {
+            isLevelVisible = !isLevelVisible;
+            return true;
+        }
+
+        if (GetToggleRect(SkillSlotToggleY).Contains(mousePosition))
+        {
+            isSkillSlotVisible = !isSkillSlotVisible;
+            return true;
+        }
+
         if (GetToggleRect(PlayerColliderToggleY).Contains(mousePosition))
         {
             isPlayerColliderWireframeVisible = !isPlayerColliderWireframeVisible;
@@ -402,6 +503,9 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
 
         SetTopLeftRect(windowRoot, windowRect.x, windowRect.y, windowRect.width, windowRect.height);
         SetTopLeftRect(fpsRoot, 12f, 12f, 104f, 28f);
+        SetTopLeftRect(levelRoot, 12f, 46f, 184f, 28f);
+        SetTopLeftRect(slotRoot, SlotOverlayX, SlotOverlayY, SlotOverlayWidth, SlotOverlayHeight);
+        UpdateSkillSlotIconLayout();
         SetTopLeftRect(
             resizeHandleRect,
             windowRect.width - ResizeHandleSize,
@@ -413,14 +517,57 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
 
         fpsRoot.gameObject.SetActive(isFpsVisible);
         fpsOverlayText.text = $"FPS {fpsText}";
+        levelRoot.gameObject.SetActive(isLevelVisible);
+        levelOverlayText.text = ReadPlayerExperience(out var playerExperience)
+            ? DebugOptionsOverlayMath.FormatLevelText(playerExperience)
+            : "Lv --  EXP -- / --";
+        slotRoot.gameObject.SetActive(isSkillSlotVisible);
+        if (isSkillSlotVisible)
+        {
+            ReadPlayerSkillSlotIcons(slotIconBuffer);
+            UpdateSkillSlotIcons(slotIconBuffer);
+        }
         windowRoot.gameObject.SetActive(isWindowOpen);
         windowFpsText.gameObject.SetActive(isFpsVisible);
         windowFpsText.text = $"FPS: {fpsText}";
 
         UpdateCheckbox(fpsCheckboxImage, isFpsVisible);
+        UpdateCheckbox(levelCheckboxImage, isLevelVisible);
+        UpdateCheckbox(slotCheckboxImage, isSkillSlotVisible);
         UpdateCheckbox(playerColliderCheckboxImage, isPlayerColliderWireframeVisible);
         UpdateCheckbox(skillTargetRangeCheckboxImage, isSkillTargetRangeVisible);
         UpdateCheckbox(skillAttackRangeCheckboxImage, isSkillAttackRangeVisible);
+    }
+
+    private void UpdateSkillSlotIconLayout()
+    {
+        SetTopLeftRect(slotAttackLabelText.rectTransform, SlotRowLabelX, SlotAttackRowY, 14f, SlotIconSize);
+        SetTopLeftRect(slotBuffLabelText.rectTransform, SlotRowLabelX, SlotBuffRowY, 14f, SlotIconSize);
+
+        for (var slotIndex = 0; slotIndex < PlayerCombatConstants.MaxAttackSkillCount; slotIndex++)
+        {
+            var x = SlotIconStartX + slotIndex * (SlotIconSize + SlotIconGap);
+
+            SetTopLeftRect(slotIconImages[slotIndex].rectTransform, x, SlotAttackRowY, SlotIconSize, SlotIconSize);
+            SetTopLeftRect(slotIconTexts[slotIndex].rectTransform, 0f, 0f, SlotIconSize, SlotIconSize);
+
+            var buffIconIndex = PlayerCombatConstants.MaxAttackSkillCount + slotIndex;
+
+            SetTopLeftRect(slotIconImages[buffIconIndex].rectTransform, x, SlotBuffRowY, SlotIconSize, SlotIconSize);
+            SetTopLeftRect(slotIconTexts[buffIconIndex].rectTransform, 0f, 0f, SlotIconSize, SlotIconSize);
+        }
+    }
+
+    private void UpdateSkillSlotIcons(SkillSlotIconData[] icons)
+    {
+        for (var iconIndex = 0; iconIndex < slotIconImages.Length; iconIndex++)
+        {
+            var icon = iconIndex < icons.Length ? icons[iconIndex] : CreateEmptySkillSlotIcon();
+            var text = string.IsNullOrEmpty(icon.Text) ? "-" : icon.Text;
+
+            slotIconImages[iconIndex].color = icon.Color;
+            slotIconTexts[iconIndex].text = text;
+        }
     }
 
     private void SetRuntimeUiVisible(bool visible)
@@ -434,6 +581,16 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         {
             fpsRoot.gameObject.SetActive(visible && isFpsVisible);
         }
+
+        if (levelRoot != null)
+        {
+            levelRoot.gameObject.SetActive(visible && isLevelVisible);
+        }
+
+        if (slotRoot != null)
+        {
+            slotRoot.gameObject.SetActive(visible && isSkillSlotVisible);
+        }
     }
 
     private void DestroyRuntimeUi()
@@ -446,14 +603,241 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         overlayCanvas = null;
         windowRoot = null;
         fpsRoot = null;
+        levelRoot = null;
+        slotRoot = null;
         resizeHandleRect = null;
         fpsOverlayText = null;
+        levelOverlayText = null;
+        slotAttackLabelText = null;
+        slotBuffLabelText = null;
+        ClearSkillSlotIconReferences();
         windowFpsText = null;
         fpsCheckboxImage = null;
+        levelCheckboxImage = null;
+        slotCheckboxImage = null;
         playerColliderCheckboxImage = null;
         skillTargetRangeCheckboxImage = null;
         skillAttackRangeCheckboxImage = null;
         ownsOverlayCanvas = false;
+    }
+
+    private void ClearSkillSlotIconReferences()
+    {
+        for (var iconIndex = 0; iconIndex < slotIconImages.Length; iconIndex++)
+        {
+            slotIconImages[iconIndex] = null;
+            slotIconTexts[iconIndex] = null;
+        }
+    }
+
+    private static bool ReadPlayerExperience(out ExperienceComponent experience)
+    {
+        experience = default;
+
+        var world = World.DefaultGameObjectInjectionWorld;
+
+        if (world == null || !world.IsCreated)
+        {
+            return false;
+        }
+
+        using var query = world.EntityManager.CreateEntityQuery(
+            ComponentType.ReadOnly<PlayerTag>(),
+            ComponentType.ReadOnly<ExperienceComponent>(),
+            ComponentType.Exclude<Prefab>());
+
+        if (query.IsEmpty)
+        {
+            return false;
+        }
+
+        experience = query.GetSingleton<ExperienceComponent>();
+        return true;
+    }
+
+    private static void ReadPlayerSkillSlotIcons(SkillSlotIconData[] icons)
+    {
+        ResetSkillSlotIcons(icons);
+
+        var world = World.DefaultGameObjectInjectionWorld;
+
+        if (world == null || !world.IsCreated)
+        {
+            return;
+        }
+
+        var entityManager = world.EntityManager;
+
+        if (!TryReadPlayerEntity(entityManager, out var playerEntity))
+        {
+            return;
+        }
+
+        ReadAttackSkillSlots(entityManager, playerEntity, icons);
+        ReadBuffSkillSlots(entityManager, playerEntity, icons);
+    }
+
+    private static void ResetSkillSlotIcons(SkillSlotIconData[] icons)
+    {
+        for (var iconIndex = 0; iconIndex < icons.Length; iconIndex++)
+        {
+            icons[iconIndex] = CreateEmptySkillSlotIcon();
+        }
+    }
+
+    private static SkillSlotIconData CreateEmptySkillSlotIcon()
+    {
+        return new SkillSlotIconData
+        {
+            Text = "-",
+            Color = SlotEmptyColor
+        };
+    }
+
+    private static SkillSlotIconData CreateAttackSkillSlotIcon(
+        bool isEquipped,
+        AttackSkillConfig config,
+        AttackSkillState state)
+    {
+        return new SkillSlotIconData
+        {
+            Text = DebugOptionsOverlayMath.FormatAttackSkillSlotIconText(isEquipped, config),
+            Color = CalculateAttackSkillSlotColor(isEquipped, state)
+        };
+    }
+
+    private static SkillSlotIconData CreateBuffSkillSlotIcon(bool isEquipped, BuffSkillConfig config)
+    {
+        return new SkillSlotIconData
+        {
+            Text = DebugOptionsOverlayMath.FormatBuffSkillSlotIconText(isEquipped, config),
+            Color = isEquipped ? SlotBuffColor : SlotEmptyColor
+        };
+    }
+
+    private static Color CalculateAttackSkillSlotColor(bool isEquipped, AttackSkillState state)
+    {
+        if (!isEquipped)
+        {
+            return SlotEmptyColor;
+        }
+
+        if (state.IsTriggered != 0)
+        {
+            return SlotTriggeredColor;
+        }
+
+        if (state.IsCooltime != 0)
+        {
+            return SlotCooltimeColor;
+        }
+
+        return SlotReadyColor;
+    }
+
+    private static bool TryReadPlayerEntity(EntityManager entityManager, out Entity playerEntity)
+    {
+        var query = entityManager.CreateEntityQuery(
+            ComponentType.ReadOnly<PlayerTag>(),
+            ComponentType.Exclude<Prefab>());
+        var entities = query.ToEntityArray(Allocator.Temp);
+
+        if (entities.Length <= 0)
+        {
+            entities.Dispose();
+            query.Dispose();
+            playerEntity = Entity.Null;
+            return false;
+        }
+
+        playerEntity = entities[0];
+        entities.Dispose();
+        query.Dispose();
+        return true;
+    }
+
+    private static void ReadAttackSkillSlots(
+        EntityManager entityManager,
+        Entity playerEntity,
+        SkillSlotIconData[] icons)
+    {
+        var query = entityManager.CreateEntityQuery(
+            ComponentType.ReadOnly<SkillSlotComponent>(),
+            ComponentType.ReadOnly<AttackSkillSlotTag>(),
+            ComponentType.Exclude<Prefab>());
+        var entities = query.ToEntityArray(Allocator.Temp);
+        var slots = query.ToComponentDataArray<SkillSlotComponent>(Allocator.Temp);
+
+        for (var slotEntityIndex = 0; slotEntityIndex < entities.Length; slotEntityIndex++)
+        {
+            var slot = slots[slotEntityIndex];
+
+            if (slot.Owner != playerEntity ||
+                slot.SlotIndex < 0 ||
+                slot.SlotIndex >= PlayerCombatConstants.MaxAttackSkillCount ||
+                slot.SlotIndex >= icons.Length)
+            {
+                continue;
+            }
+
+            var entity = entities[slotEntityIndex];
+            var isEquipped = entityManager.HasComponent<EquippedSkillTag>(entity) &&
+                             entityManager.HasComponent<AttackSkillConfig>(entity) &&
+                             entityManager.HasComponent<AttackSkillState>(entity);
+
+            icons[slot.SlotIndex] = CreateAttackSkillSlotIcon(
+                isEquipped,
+                isEquipped ? entityManager.GetComponentData<AttackSkillConfig>(entity) : default,
+                isEquipped ? entityManager.GetComponentData<AttackSkillState>(entity) : default);
+        }
+
+        slots.Dispose();
+        entities.Dispose();
+        query.Dispose();
+    }
+
+    private static void ReadBuffSkillSlots(
+        EntityManager entityManager,
+        Entity playerEntity,
+        SkillSlotIconData[] icons)
+    {
+        var query = entityManager.CreateEntityQuery(
+            ComponentType.ReadOnly<SkillSlotComponent>(),
+            ComponentType.ReadOnly<BuffSkillSlotTag>(),
+            ComponentType.Exclude<Prefab>());
+        var entities = query.ToEntityArray(Allocator.Temp);
+        var slots = query.ToComponentDataArray<SkillSlotComponent>(Allocator.Temp);
+
+        for (var slotEntityIndex = 0; slotEntityIndex < entities.Length; slotEntityIndex++)
+        {
+            var slot = slots[slotEntityIndex];
+
+            if (slot.Owner != playerEntity ||
+                slot.SlotIndex < 0 ||
+                slot.SlotIndex >= PlayerCombatConstants.MaxBuffSkillCount)
+            {
+                continue;
+            }
+
+            var entity = entities[slotEntityIndex];
+            var iconIndex = PlayerCombatConstants.MaxAttackSkillCount + slot.SlotIndex;
+
+            if (iconIndex < 0 || iconIndex >= icons.Length)
+            {
+                continue;
+            }
+
+            var isEquipped = entityManager.HasComponent<EquippedSkillTag>(entity) &&
+                             entityManager.HasComponent<BuffSkillConfig>(entity);
+
+            icons[iconIndex] = CreateBuffSkillSlotIcon(
+                isEquipped,
+                isEquipped ? entityManager.GetComponentData<BuffSkillConfig>(entity) : default);
+        }
+
+        slots.Dispose();
+        entities.Dispose();
+        query.Dispose();
     }
 
     private Rect GetTitleBarRect()
@@ -1417,6 +1801,62 @@ public static class DebugOptionsOverlayMath
         var y = Mathf.Clamp(rect.y, 0f, maxY);
 
         return new Rect(x, y, width, height);
+    }
+
+    /// <summary>
+    /// Debug 表示用の player level 文字列を作る。
+    /// </summary>
+    /// <param name="experience">Player の現在経験値。</param>
+    /// <returns>簡易 debug UI に表示する level / EXP 文字列。</returns>
+    public static string FormatLevelText(ExperienceComponent experience)
+    {
+        return string.Format(
+            CultureInfo.InvariantCulture,
+            "Lv {0}  EXP {1} / {2}",
+            Mathf.Max(1, experience.Level),
+            Mathf.Max(0, experience.CurrentExperience),
+            Mathf.Max(0, experience.RequiredExperience));
+    }
+
+    /// <summary>
+    /// Attack skill slot の小さい debug icon に表示する文字を作る。
+    /// </summary>
+    /// <param name="isEquipped">装備中なら true。</param>
+    /// <param name="config">装備中 skill の定義値。</param>
+    /// <returns>未装備は "-"、装備中は skill id。</returns>
+    public static string FormatAttackSkillSlotIconText(bool isEquipped, AttackSkillConfig config)
+    {
+        if (!isEquipped)
+        {
+            return "-";
+        }
+
+        return FormatSkillSlotIconId(config.Id);
+    }
+
+    /// <summary>
+    /// Buff skill slot の小さい debug icon に表示する文字を作る。
+    /// </summary>
+    public static string FormatBuffSkillSlotIconText(bool isEquipped, BuffSkillConfig config)
+    {
+        if (!isEquipped)
+        {
+            return "-";
+        }
+
+        return FormatSkillSlotIconId(config.Id);
+    }
+
+    private static string FormatSkillSlotIconId(int id)
+    {
+        if (id < 0)
+        {
+            return "?";
+        }
+
+        return id <= 99
+            ? id.ToString(CultureInfo.InvariantCulture)
+            : "99+";
     }
 }
 #endif

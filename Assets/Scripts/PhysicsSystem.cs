@@ -158,4 +158,46 @@ public static class PhysicsMath
             IsGrounded = 1
         };
     }
+
+    /// <summary>
+    /// 接地 query をすり抜けて最後の地面高さより深く落ちた Entity を救済する。
+    /// </summary>
+    /// <param name="position">救済前の位置。</param>
+    /// <param name="velocity">救済前の速度。</param>
+    /// <param name="groundY">最後に記録した地面高さ。</param>
+    /// <param name="maxBelowGroundY">この深さを超えたら救済する。0 以下は救済しない。</param>
+    /// <returns>救済後の位置、速度、接地状態。</returns>
+    public static GroundSnapResult RescueFallenBelowGround(
+        float3 position,
+        float3 velocity,
+        float groundY,
+        float maxBelowGroundY)
+    {
+        var safeMaxBelowGroundY = math.max(0f, maxBelowGroundY);
+
+        if (safeMaxBelowGroundY <= 0f ||
+            position.y >= groundY - safeMaxBelowGroundY)
+        {
+            return new GroundSnapResult
+            {
+                Position = position,
+                Velocity = velocity,
+                IsGrounded = 0
+            };
+        }
+
+        if (velocity.y < 0f)
+        {
+            velocity.y = 0f;
+        }
+
+        position.y = groundY;
+
+        return new GroundSnapResult
+        {
+            Position = position,
+            Velocity = velocity,
+            IsGrounded = 1
+        };
+    }
 }

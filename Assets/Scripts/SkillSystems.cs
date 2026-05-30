@@ -148,6 +148,8 @@ public partial struct SkillLogicSystem : ISystem
         var localToWorldLookup = SystemAPI.GetComponentLookup<LocalToWorld>(true);
         var healthLookup = SystemAPI.GetComponentLookup<HealthComponent>(false);
         var hitVfxLookup = SystemAPI.GetComponentLookup<MonsterHitVfxState>(false);
+        var experienceLookup = SystemAPI.GetComponentLookup<ExperienceComponent>(true);
+        var levelStatsLookup = SystemAPI.GetComponentLookup<PlayerLevelStats>(true);
         var buffSkills = equippedBuffSkillQuery.ToComponentDataArray<BuffSkillConfig>(Allocator.Temp);
         var buffSlots = equippedBuffSkillQuery.ToComponentDataArray<SkillSlotComponent>(Allocator.Temp);
         var monsterEntities = monsterQuery.ToEntityArray(Allocator.Temp);
@@ -175,6 +177,10 @@ public partial struct SkillLogicSystem : ISystem
                 owner,
                 buffSkills,
                 buffSlots);
+            var playerLevelDamageRate = SkillSystemUtility.CalculatePlayerLevelDamageRate(
+                owner,
+                experienceLookup,
+                levelStatsLookup);
 
             switch (config.ValueRO.LogicId)
             {
@@ -190,6 +196,7 @@ public partial struct SkillLogicSystem : ISystem
                         ref skillState.ValueRW,
                         ownerPosition,
                         buffs,
+                        playerLevelDamageRate,
                         ref random,
                         monsterEntities,
                         monsterTransforms,
@@ -239,6 +246,7 @@ public static class SkillSystemUtility
         ref AttackSkillState skillState,
         float3 ownerPosition,
         BuffAccumulator buffs,
+        float playerLevelDamageRate,
         ref Unity.Mathematics.Random random,
         NativeArray<Entity> monsterEntities,
         NativeArray<LocalTransform> monsterTransforms,
@@ -269,7 +277,7 @@ public static class SkillSystemUtility
 #endif
 
         var damage = SkillMath.CalculateDamageToHp(
-            SkillMath.CalculateEffectiveDamage(config, skillState, buffs));
+            SkillMath.CalculateEffectiveDamage(config, skillState, buffs, playerLevelDamageRate));
         var attackRangeSq = attackRange * attackRange;
 
         var hitCount = 0;
@@ -309,6 +317,22 @@ public static class SkillSystemUtility
         skillState.Timer = 0f;
 
         return hitCount;
+    }
+
+    public static float CalculatePlayerLevelDamageRate(
+        Entity owner,
+        ComponentLookup<ExperienceComponent> experienceLookup,
+        ComponentLookup<PlayerLevelStats> levelStatsLookup)
+    {
+        if (!experienceLookup.HasComponent(owner) ||
+            !levelStatsLookup.HasComponent(owner))
+        {
+            return 1f;
+        }
+
+        return ExperienceMath.CalculatePlayerSkillDamageRate(
+            levelStatsLookup[owner],
+            experienceLookup[owner].Level);
     }
 
     private static void PlayMonsterHitVfx(

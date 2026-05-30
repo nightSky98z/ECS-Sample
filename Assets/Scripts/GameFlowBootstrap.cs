@@ -18,6 +18,8 @@ public sealed class GameFlowBootstrap : MonoBehaviour
     private const string CanvasObjectName = "Game Flow Canvas";
     private const string BuiltInFontResourceName = "LegacyRuntime.ttf";
 
+    private static bool hasGameSessionStarted;
+
     private static readonly Vector2 ButtonSize = new Vector2(300f, 62f);
     private static readonly Color BackgroundColor = new Color(0.04f, 0.05f, 0.06f, 0.96f);
     private static readonly Color PanelColor = new Color(0.08f, 0.09f, 0.11f, 0.88f);
@@ -44,6 +46,36 @@ public sealed class GameFlowBootstrap : MonoBehaviour
     private bool hasStageClearQuery;
     private bool hasLoadedResultForCurrentScene;
     private int framesSinceSceneLoaded;
+
+    /// <summary>
+    /// スタート画面を経由していない本編 / リザルト Scene を開始 Scene へ戻すかを判定する。
+    /// </summary>
+    /// <param name="sceneName">現在の Scene 名。</param>
+    /// <param name="hasGameplayLaunchPermission">スタート画面からゲーム開始済みなら true。</param>
+    /// <returns>開始 Scene へ戻す必要があれば true。</returns>
+    public static bool ShouldRedirectToStartScene(string sceneName, bool hasGameplayLaunchPermission)
+    {
+        if (sceneName == StartSceneName)
+        {
+            return false;
+        }
+
+        if (sceneName == GameplaySceneName || sceneName == ResultSceneName)
+        {
+            return !hasGameplayLaunchPermission;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Domain Reload 無効時でも Play 開始ごとに開始 Scene から始めるための初期化。
+    /// </summary>
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ResetSessionState()
+    {
+        hasGameSessionStarted = false;
+    }
 
     /// <summary>
     /// Scene に手動配置しなくても game flow bootstrap を 1 つだけ作る。
@@ -87,6 +119,12 @@ public sealed class GameFlowBootstrap : MonoBehaviour
     {
         var sceneName = SceneManager.GetActiveScene().name;
 
+        if (ShouldRedirectToStartScene(sceneName, hasGameSessionStarted))
+        {
+            SceneManager.LoadScene(StartSceneName);
+            return;
+        }
+
         RefreshSceneUi();
 
         if (sceneName == StartSceneName)
@@ -95,6 +133,7 @@ public sealed class GameFlowBootstrap : MonoBehaviour
 
             if (WasPrimaryActionPressed(startButtonRect))
             {
+                hasGameSessionStarted = true;
                 SceneManager.LoadScene(GameplaySceneName);
             }
 
@@ -107,6 +146,7 @@ public sealed class GameFlowBootstrap : MonoBehaviour
 
             if (WasPrimaryActionPressed(resultButtonRect))
             {
+                hasGameSessionStarted = false;
                 SceneManager.LoadScene(StartSceneName);
             }
 

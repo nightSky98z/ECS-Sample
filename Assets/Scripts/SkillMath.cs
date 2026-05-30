@@ -55,8 +55,18 @@ public static class SkillMath
         AttackSkillState state,
         BuffAccumulator buffs)
     {
+        return CalculateEffectiveDamage(config, state, buffs, 1f);
+    }
+
+    public static float CalculateEffectiveDamage(
+        AttackSkillConfig config,
+        AttackSkillState state,
+        BuffAccumulator buffs,
+        float playerLevelDamageRate)
+    {
         return math.max(0f, config.BaseDamage) *
                CalculateLevelRate(state.Level) *
+               math.max(0f, playerLevelDamageRate) *
                buffs.DamageMultiplier;
     }
 

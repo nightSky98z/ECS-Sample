@@ -15,10 +15,24 @@ public sealed class GameFlowTests
     public void BuildSettingsContainGameFlowScenes()
     {
         var source = File.ReadAllText("ProjectSettings/EditorBuildSettings.asset");
+        var startSceneIndex = source.IndexOf("path: Assets/Scenes/GameStartScene.unity");
+        var gameplaySceneIndex = source.IndexOf("path: Assets/Scenes/DebugScene.unity");
 
         StringAssert.Contains("Assets/Scenes/GameStartScene.unity", source);
         StringAssert.Contains("Assets/Scenes/DebugScene.unity", source);
         StringAssert.Contains("Assets/Scenes/ResultScene.unity", source);
+        Assert.GreaterOrEqual(startSceneIndex, 0);
+        Assert.Greater(gameplaySceneIndex, startSceneIndex);
+    }
+
+    [Test]
+    public void GameFlowRedirectsDirectGameplayOrResultLaunchToStart()
+    {
+        Assert.IsFalse(GameFlowBootstrap.ShouldRedirectToStartScene(GameFlowBootstrap.StartSceneName, false));
+        Assert.IsTrue(GameFlowBootstrap.ShouldRedirectToStartScene(GameFlowBootstrap.GameplaySceneName, false));
+        Assert.IsFalse(GameFlowBootstrap.ShouldRedirectToStartScene(GameFlowBootstrap.GameplaySceneName, true));
+        Assert.IsTrue(GameFlowBootstrap.ShouldRedirectToStartScene(GameFlowBootstrap.ResultSceneName, false));
+        Assert.IsFalse(GameFlowBootstrap.ShouldRedirectToStartScene(GameFlowBootstrap.ResultSceneName, true));
     }
 
     [Test]

@@ -14,7 +14,7 @@ public partial class EntitySpawnerAuthoring
     private const float PreviewAreaHeight = 0.05f;
 
     [SerializeField]
-    [Tooltip("Scene View で spawn 範囲と予定位置を表示する。Player build には含まれない。")]
+    [Tooltip("シーンビューでスポーン範囲と予定位置を表示する。プレイヤービルドには含まれない。")]
     private bool DrawSpawnPreview = true;
 
     private readonly List<MeshFilter> PreviewMeshFilters = new List<MeshFilter>();

@@ -8,9 +8,11 @@ using UnityEngine;
 /// </summary>
 public sealed class CameraFollowPlayer : MonoBehaviour
 {
+    [Tooltip("プレイヤー位置から見たカメラの相対位置。")]
     [SerializeField]
     private Vector3 Offset = new Vector3(0f, 0f, -10f);
 
+    [Tooltip("追従の滑らかさ。大きいほど素早く目標位置へ近づく。")]
     [SerializeField]
     private float FollowSpeed = 12f;
 

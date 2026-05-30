@@ -21,24 +21,24 @@ public struct SpawnRequest : IBufferElementData
 public partial class EntitySpawnerAuthoring : MonoBehaviour
 {
     [SerializeField]
-    [Tooltip("生成する Prefab。Player、Monster、Bullet など SpawnRequest が instantiate する対象。")]
+    [Tooltip("生成するプレハブ。プレイヤー、モンスター、弾、エフェクトなど、SpawnRequest がインスタンス化する対象。")]
     private GameObject SpawnEntityPrefab;
 
     [SerializeField]
     [Min(0)]
-    [Tooltip("この Spawner から作る SpawnRequest の数。0 は生成なし。RandomizePosition 無効時は最大 1。")]
+    [Tooltip("このスポナーから作る SpawnRequest の数。0 は生成なし。RandomizePosition 無効時は最大 1。")]
     private int SpawnCount = 1;
 
     [SerializeField]
-    [Tooltip("有効にすると、Spawner の位置を中心に SpawnAreaSize の範囲へランダム配置する。")]
+    [Tooltip("有効にすると、スポナーの位置を中心に SpawnAreaSize の範囲へランダム配置する。")]
     private bool RandomizePosition;
 
     [SerializeField]
-    [Tooltip("ランダム配置に使う seed。0 は Unity.Mathematics.Random で使えないため 1 として扱う。")]
+    [Tooltip("ランダム配置に使うシード。0 は Unity.Mathematics.Random で使えないため 1 として扱う。")]
     private int RandomSeed = 1;
 
     [SerializeField]
-    [Tooltip("ランダム配置の X/Z 範囲。Y は Spawner の高さをそのまま使う。")]
+    [Tooltip("ランダム配置の X/Z 範囲。Y はスポナーの高さをそのまま使う。")]
     private Vector2 SpawnAreaSize = new Vector2(20f, 20f);
 
     /// <summary>

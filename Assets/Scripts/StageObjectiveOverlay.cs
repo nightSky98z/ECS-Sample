@@ -19,6 +19,7 @@ public sealed class StageObjectiveOverlay : MonoBehaviour
     private static readonly Color BossBackColor = new Color(0.18f, 0.08f, 0.04f, 0.95f);
     private static readonly Color BossFrontColor = new Color(0.78f, 0.12f, 0.08f, 1f);
 
+    [Tooltip("表示先 Canvas。未指定なら ScreenSpaceOverlay の Canvas を自動生成する。")]
     [SerializeField]
     private Canvas TargetCanvas;
 

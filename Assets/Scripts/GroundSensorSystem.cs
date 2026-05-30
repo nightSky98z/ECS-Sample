@@ -13,6 +13,7 @@ using Unity.Transforms;
 public partial struct GroundSensorSystem : ISystem
 {
     private ComponentLookup<GroundTag> groundLookup;
+    private ComponentLookup<GroundFallRescue> fallRescueLookup;
 
     [BurstCompile]
     public void OnCreate(ref SystemState state)
@@ -20,12 +21,14 @@ public partial struct GroundSensorSystem : ISystem
         state.RequireForUpdate<GroundSensor>();
         state.RequireForUpdate<PhysicsWorldSingleton>();
         groundLookup = state.GetComponentLookup<GroundTag>(true);
+        fallRescueLookup = state.GetComponentLookup<GroundFallRescue>(true);
     }
 
     [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
         groundLookup.Update(ref state);
+        fallRescueLookup.Update(ref state);
 
         var collisionWorld = SystemAPI.GetSingleton<PhysicsWorldSingleton>().CollisionWorld;
         var collisionFilter = new CollisionFilter
@@ -36,9 +39,10 @@ public partial struct GroundSensorSystem : ISystem
         };
         var groundHits = new NativeList<DistanceHit>(Allocator.Temp);
 
-        foreach (var (transform, velocity, groundSnap, groundSensor) in
+        foreach (var (transform, velocity, groundSnap, groundSensor, entity) in
                  SystemAPI.Query<RefRW<LocalTransform>, RefRW<Velocity>, RefRW<GroundSnap>, RefRO<GroundSensor>>()
-                     .WithNone<MonsterDestroyVfxState>())
+                     .WithNone<MonsterDestroyVfxState>()
+                     .WithEntityAccess())
         {
             var transformValue = transform.ValueRO;
             var sensorShape = GroundSensorMath.CalculateWorldShape(
@@ -104,6 +108,23 @@ public partial struct GroundSensorSystem : ISystem
 
             if (!hasGround)
             {
+                if (fallRescueLookup.HasComponent(entity))
+                {
+                    var rescueResult = PhysicsMath.RescueFallenBelowGround(
+                        transformValue.Position,
+                        velocity.ValueRO.Value,
+                        groundSnap.ValueRO.GroundY,
+                        fallRescueLookup[entity].MaxBelowGroundY);
+
+                    if (rescueResult.IsGrounded != 0)
+                    {
+                        transform.ValueRW.Position = rescueResult.Position;
+                        velocity.ValueRW.Value = rescueResult.Velocity;
+                        groundSnap.ValueRW.IsGrounded = rescueResult.IsGrounded;
+                        continue;
+                    }
+                }
+
                 groundSnap.ValueRW.IsGrounded = 0;
                 continue;
             }

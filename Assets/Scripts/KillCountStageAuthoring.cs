@@ -9,12 +9,12 @@ public sealed class KillCountStageAuthoring : MonoBehaviour
 {
     [SerializeField]
     [Min(0)]
-    [Tooltip("Stage clears when current kill count reaches this value. 0 disables auto clear.")]
+    [Tooltip("現在の討伐数がこの値に到達するとステージクリアになる。0 は自動クリア無効。")]
     private int TargetKillCount = 100;
 
     [SerializeField]
     [Min(0)]
-    [Tooltip("Initial kill count.")]
+    [Tooltip("初期討伐数。")]
     private int InitialKillCount = 0;
 
     private void OnValidate()
