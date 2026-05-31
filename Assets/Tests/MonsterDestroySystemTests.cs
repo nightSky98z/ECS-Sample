@@ -63,7 +63,7 @@ public sealed class MonsterDestroySystemTests
     [Test]
     public void MonsterEntityBakesDestroyVfxConfig()
     {
-        var source = File.ReadAllText("Assets/Scripts/MonsterEntity.cs");
+        var source = File.ReadAllText("Assets/Scripts/Monster/MonsterEntity.cs");
 
         StringAssert.Contains("DestroyVfxDuration", source);
         StringAssert.Contains("DestroyVfxStartColor", source);
@@ -77,7 +77,7 @@ public sealed class MonsterDestroySystemTests
     [Test]
     public void MonsterEntityOnlyAddsRecycleTagWhenAuthoringAllowsIt()
     {
-        var source = File.ReadAllText("Assets/Scripts/MonsterEntity.cs");
+        var source = File.ReadAllText("Assets/Scripts/Monster/MonsterEntity.cs");
         var prefab = File.ReadAllText("Assets/Prefab/Monster.prefab");
 
         StringAssert.Contains("RecycleAfterDeath", source);
@@ -88,7 +88,7 @@ public sealed class MonsterDestroySystemTests
     [Test]
     public void MonsterRendererBaseColorIsBakedByRendererOwner()
     {
-        var source = File.ReadAllText("Assets/Scripts/MonsterEntity.cs");
+        var source = File.ReadAllText("Assets/Scripts/Monster/MonsterEntity.cs");
 
         StringAssert.Contains("Baker<Renderer>", source);
         StringAssert.Contains("GetComponentInParent<MonsterEntity>(true)", source);
@@ -99,7 +99,7 @@ public sealed class MonsterDestroySystemTests
     [Test]
     public void MonsterDestroySystemStartsDeathStateAndDestroysLinkedGroup()
     {
-        var source = File.ReadAllText("Assets/Scripts/MonsterDestroySystem.cs");
+        var source = File.ReadAllText("Assets/Scripts/Monster/MonsterDestroySystem.cs");
 
         StringAssert.Contains("MonsterTag", source);
         StringAssert.Contains("HealthComponent", source);
@@ -113,7 +113,7 @@ public sealed class MonsterDestroySystemTests
     [Test]
     public void RecyclableMonsterIsReusedAfterDeathVfx()
     {
-        var source = File.ReadAllText("Assets/Scripts/MonsterDestroySystem.cs");
+        var source = File.ReadAllText("Assets/Scripts/Monster/MonsterDestroySystem.cs");
 
         StringAssert.Contains("MonsterRecycleTag", source);
         StringAssert.Contains("TryGetDeathRecycleContext", source);
@@ -125,9 +125,9 @@ public sealed class MonsterDestroySystemTests
     [Test]
     public void DeadMonsterDoesNotMoveDuringDestroyVfx()
     {
-        var movementSource = File.ReadAllText("Assets/Scripts/MovementSystem.cs");
-        var physicsSource = File.ReadAllText("Assets/Scripts/PhysicsSystem.cs");
-        var groundSource = File.ReadAllText("Assets/Scripts/GroundSensorSystem.cs");
+        var movementSource = File.ReadAllText("Assets/Scripts/Movement/MovementSystem.cs");
+        var physicsSource = File.ReadAllText("Assets/Scripts/Physics/PhysicsSystem.cs");
+        var groundSource = File.ReadAllText("Assets/Scripts/Physics/GroundSensorSystem.cs");
 
         StringAssert.Contains("WithNone<MonsterDestroyVfxState>", movementSource);
         StringAssert.Contains("WithNone<MonsterDestroyVfxState>", physicsSource);
@@ -137,7 +137,7 @@ public sealed class MonsterDestroySystemTests
     [Test]
     public void VFXPlaySystemOwnsHitAndDeathMaterialPlayback()
     {
-        var source = File.ReadAllText("Assets/Scripts/VFXPlaySystem.cs");
+        var source = File.ReadAllText("Assets/Scripts/VFX/VFXPlaySystem.cs");
 
         StringAssert.Contains("VFXPlaySystem", source);
         StringAssert.Contains("UpdateAfter(typeof(MonsterDestroySystem))", source);
@@ -154,9 +154,9 @@ public sealed class MonsterDestroySystemTests
     [Test]
     public void MonsterVfxUsesUnityRenderingBaseColorOverride()
     {
-        var componentSource = File.ReadAllText("Assets/Scripts/MonsterDestroyComponents.cs");
-        var destroySource = File.ReadAllText("Assets/Scripts/MonsterDestroySystem.cs");
-        var vfxSource = File.ReadAllText("Assets/Scripts/VFXPlaySystem.cs");
+        var componentSource = File.ReadAllText("Assets/Scripts/Monster/MonsterDestroyComponents.cs");
+        var destroySource = File.ReadAllText("Assets/Scripts/Monster/MonsterDestroySystem.cs");
+        var vfxSource = File.ReadAllText("Assets/Scripts/VFX/VFXPlaySystem.cs");
 
         Assert.IsFalse(componentSource.Contains("MaterialProperty(\"_BaseColor\")"));
         Assert.IsFalse(componentSource.Contains("MonsterMaterialBaseColor"));

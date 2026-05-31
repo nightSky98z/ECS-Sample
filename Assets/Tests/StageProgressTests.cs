@@ -58,7 +58,7 @@ public sealed class StageProgressTests
     [Test]
     public void StageClearSystemIsExplicitAndRequiresStageClearState()
     {
-        var source = File.ReadAllText("Assets/Scripts/StageProgressAuthoring.cs");
+        var source = File.ReadAllText("Assets/Scripts/Stage/StageProgressAuthoring.cs");
 
         StringAssert.Contains("StageClearSystem", source);
         StringAssert.Contains("RequireForUpdate<StageClearState>", source);
@@ -69,7 +69,7 @@ public sealed class StageProgressTests
     [Test]
     public void BossHealthStageUsesRuntimeBossMaxHp()
     {
-        var source = File.ReadAllText("Assets/Scripts/StageProgressAuthoring.cs");
+        var source = File.ReadAllText("Assets/Scripts/Stage/StageProgressAuthoring.cs");
 
         StringAssert.Contains("state.EntityManager.GetComponentData<HealthComponent>", source);
         StringAssert.Contains("maxHp = math.max(1, health.MaxHp)", source);

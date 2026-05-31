@@ -59,7 +59,7 @@ public sealed class HealthBarOverlayTests
     [Test]
     public void HealthBarOverlayRequiresHealthBarAnchor()
     {
-        var overlayText = File.ReadAllText("Assets/Scripts/HealthBarOverlay.cs");
+        var overlayText = File.ReadAllText("Assets/Scripts/Health/HealthBarOverlay.cs");
 
         StringAssert.Contains("ComponentType.ReadOnly<HealthComponent>()", overlayText);
         StringAssert.Contains("ComponentType.ReadOnly<HealthBarAnchor>()", overlayText);

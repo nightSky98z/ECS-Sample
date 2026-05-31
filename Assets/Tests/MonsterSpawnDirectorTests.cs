@@ -171,8 +171,8 @@ public sealed class MonsterSpawnDirectorTests
     [Test]
     public void MonsterSpawnDirectorRecyclesFarMonstersWithoutDestroyingEntities()
     {
-        var source = System.IO.File.ReadAllText("Assets/Scripts/MonsterSpawnDirectorAuthoring.cs");
-        var monsterSource = System.IO.File.ReadAllText("Assets/Scripts/MonsterEntity.cs");
+        var source = System.IO.File.ReadAllText("Assets/Scripts/Monster/MonsterSpawnDirectorAuthoring.cs");
+        var monsterSource = System.IO.File.ReadAllText("Assets/Scripts/Monster/MonsterEntity.cs");
 
         StringAssert.Contains("RecycleFarMonsters", source);
         StringAssert.Contains("RecycleCheckIntervalSeconds", source);
@@ -191,7 +191,7 @@ public sealed class MonsterSpawnDirectorTests
     [Test]
     public void MonsterSpawnDirectorPlaysBackSpawnCommandsAfterConfigQuery()
     {
-        var source = System.IO.File.ReadAllText("Assets/Scripts/MonsterSpawnDirectorAuthoring.cs");
+        var source = System.IO.File.ReadAllText("Assets/Scripts/Monster/MonsterSpawnDirectorAuthoring.cs");
         var queryIndex = source.IndexOf(
             "SystemAPI.Query<\n                     RefRO<MonsterSpawnDirectorConfig>",
             System.StringComparison.Ordinal);
@@ -258,7 +258,7 @@ public sealed class MonsterSpawnDirectorTests
     [Test]
     public void MonsterSpawnDirectorMaintainsNearbyDensityBeforeSpawningNewEntities()
     {
-        var source = System.IO.File.ReadAllText("Assets/Scripts/MonsterSpawnDirectorAuthoring.cs");
+        var source = System.IO.File.ReadAllText("Assets/Scripts/Monster/MonsterSpawnDirectorAuthoring.cs");
 
         StringAssert.Contains("NearbyMonsterTargetCount", source);
         StringAssert.Contains("NearbyMonsterLowThreshold", source);
@@ -334,7 +334,7 @@ public sealed class MonsterSpawnDirectorTests
     [Test]
     public void MonsterSpawnDirectorStopsTimedSpawnAfterStageClear()
     {
-        var source = System.IO.File.ReadAllText("Assets/Scripts/MonsterSpawnDirectorAuthoring.cs");
+        var source = System.IO.File.ReadAllText("Assets/Scripts/Monster/MonsterSpawnDirectorAuthoring.cs");
         var clearIndex = source.IndexOf("if (isStageCleared)", System.StringComparison.Ordinal);
         var recycleIndex = source.IndexOf("if (recycleScanActive", System.StringComparison.Ordinal);
 

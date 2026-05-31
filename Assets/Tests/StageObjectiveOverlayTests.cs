@@ -38,7 +38,7 @@ public sealed class StageObjectiveOverlayTests
     [Test]
     public void StageObjectiveOverlayReadsOnlyStageProgressEntities()
     {
-        var source = File.ReadAllText("Assets/Scripts/StageObjectiveOverlay.cs");
+        var source = File.ReadAllText("Assets/Scripts/Stage/StageObjectiveOverlay.cs");
 
         StringAssert.Contains("TimedSurvivalStageProgress", source);
         StringAssert.Contains("KillCountStageProgress", source);
@@ -52,7 +52,7 @@ public sealed class StageObjectiveOverlayTests
     [Test]
     public void StageObjectiveOverlayDisposesRuntimeQueries()
     {
-        var source = File.ReadAllText("Assets/Scripts/StageObjectiveOverlay.cs");
+        var source = File.ReadAllText("Assets/Scripts/Stage/StageObjectiveOverlay.cs");
 
         StringAssert.Contains("DisposeQueries()", source);
         StringAssert.Contains("timedStageQuery.Dispose()", source);
@@ -63,7 +63,7 @@ public sealed class StageObjectiveOverlayTests
     [Test]
     public void StageObjectiveOverlayRebuildsIncompleteUiReferences()
     {
-        var source = File.ReadAllText("Assets/Scripts/StageObjectiveOverlay.cs");
+        var source = File.ReadAllText("Assets/Scripts/Stage/StageObjectiveOverlay.cs");
 
         StringAssert.Contains("IsUiReady()", source);
         StringAssert.Contains("ClearUiReferences()", source);
@@ -74,7 +74,7 @@ public sealed class StageObjectiveOverlayTests
     [Test]
     public void StageObjectiveOverlayUsesCurrentUnityBuiltInFont()
     {
-        var source = File.ReadAllText("Assets/Scripts/StageObjectiveOverlay.cs");
+        var source = File.ReadAllText("Assets/Scripts/Stage/StageObjectiveOverlay.cs");
 
         StringAssert.Contains("LegacyRuntime.ttf", source);
         Assert.IsFalse(source.Contains("Arial.ttf"));

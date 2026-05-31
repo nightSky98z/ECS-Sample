@@ -86,7 +86,7 @@ public sealed class DebugOptionsOverlayTests
     [Test]
     public void DebugOptionsExposeRuntimeColliderAndSkillRangeToggles()
     {
-        var source = File.ReadAllText("Assets/Scripts/DebugOptionsOverlay.cs");
+        var source = File.ReadAllText("Assets/Scripts/Debug/DebugOptionsOverlay.cs");
 
         StringAssert.Contains("Level 表示", source);
         StringAssert.Contains("Player Collider Wireframe", source);
@@ -133,7 +133,7 @@ public sealed class DebugOptionsOverlayTests
     [Test]
     public void DebugOptionsLevelDisplayIsDevelopmentOnlyAndUsesPlayerExperience()
     {
-        var source = File.ReadAllText("Assets/Scripts/DebugOptionsOverlay.cs");
+        var source = File.ReadAllText("Assets/Scripts/Debug/DebugOptionsOverlay.cs");
 
         StringAssert.StartsWith("#if UNITY_EDITOR || DEVELOPMENT_BUILD", source);
         StringAssert.Contains("levelRoot", source);
@@ -146,7 +146,7 @@ public sealed class DebugOptionsOverlayTests
     [Test]
     public void DebugOptionsSkillSlotDisplayReadsEquippedSlots()
     {
-        var source = File.ReadAllText("Assets/Scripts/DebugOptionsOverlay.cs");
+        var source = File.ReadAllText("Assets/Scripts/Debug/DebugOptionsOverlay.cs");
 
         StringAssert.Contains("スキルスロット表示", source);
         StringAssert.Contains("slotRoot", source);
@@ -169,7 +169,7 @@ public sealed class DebugOptionsOverlayTests
     [Test]
     public void DebugOptionsRuntimeDrawerReadsColliderAndSkillData()
     {
-        var source = File.ReadAllText("Assets/Scripts/DebugOptionsOverlay.cs");
+        var source = File.ReadAllText("Assets/Scripts/Debug/DebugOptionsOverlay.cs");
 
         StringAssert.Contains("CollisionRadius", source);
         StringAssert.Contains("GroundSensor", source);
@@ -184,8 +184,8 @@ public sealed class DebugOptionsOverlayTests
     [Test]
     public void DebugOptionsKeepTargetRangePersistentAndAttackRangeAsFadeEvent()
     {
-        var overlaySource = File.ReadAllText("Assets/Scripts/DebugOptionsOverlay.cs");
-        var skillSource = File.ReadAllText("Assets/Scripts/SkillSystems.cs");
+        var overlaySource = File.ReadAllText("Assets/Scripts/Debug/DebugOptionsOverlay.cs");
+        var skillSource = File.ReadAllText("Assets/Scripts/Skills/SkillSystems.cs");
 
         StringAssert.Contains("AttackRangeFadeSeconds", overlaySource);
         StringAssert.Contains("LineRenderer", overlaySource);
@@ -197,7 +197,7 @@ public sealed class DebugOptionsOverlayTests
     [Test]
     public void DebugOptionsDisposesRuntimeRangeRenderersOnShutdown()
     {
-        var source = File.ReadAllText("Assets/Scripts/DebugOptionsOverlay.cs");
+        var source = File.ReadAllText("Assets/Scripts/Debug/DebugOptionsOverlay.cs");
 
         StringAssert.Contains("OnDisable", source);
         StringAssert.Contains("OnDestroy", source);
@@ -212,7 +212,7 @@ public sealed class DebugOptionsOverlayTests
     [Test]
     public void DebugOptionsWindowDoesNotUseRuntimeImgui()
     {
-        var source = File.ReadAllText("Assets/Scripts/DebugOptionsOverlay.cs");
+        var source = File.ReadAllText("Assets/Scripts/Debug/DebugOptionsOverlay.cs");
 
         StringAssert.Contains("Canvas", source);
         StringAssert.Contains("ProcessPointerInput", source);
@@ -224,7 +224,7 @@ public sealed class DebugOptionsOverlayTests
     [Test]
     public void DebugOptionsUsesCurrentUnityBuiltInFont()
     {
-        var source = File.ReadAllText("Assets/Scripts/DebugOptionsOverlay.cs");
+        var source = File.ReadAllText("Assets/Scripts/Debug/DebugOptionsOverlay.cs");
 
         StringAssert.Contains("LegacyRuntime.ttf", source);
         Assert.IsFalse(source.Contains("Arial.ttf"));

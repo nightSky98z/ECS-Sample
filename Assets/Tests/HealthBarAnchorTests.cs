@@ -59,7 +59,7 @@ public sealed class HealthBarAnchorTests
     [Test]
     public void PlayerPrefabContainsHealthBarAnchorMarkerAndMonsterPrefabDoesNot()
     {
-        var markerGuid = ReadUnityGuid("Assets/Scripts/HealthBarAnchorAuthoring.cs.meta");
+        var markerGuid = ReadUnityGuid("Assets/Scripts/Health/HealthBarAnchorAuthoring.cs.meta");
         var playerPrefabText = File.ReadAllText("Assets/Prefab/Player.prefab");
         var monsterPrefabText = File.ReadAllText("Assets/Prefab/Monster.prefab");
 
@@ -72,7 +72,7 @@ public sealed class HealthBarAnchorTests
     [Test]
     public void HealthBarAnchorPreviewIsEditorOnlyGizmo()
     {
-        var gizmoText = File.ReadAllText("Assets/Scripts/HealthBarAnchorAuthoring.EditorGizmos.cs");
+        var gizmoText = File.ReadAllText("Assets/Scripts/Health/HealthBarAnchorAuthoring.EditorGizmos.cs");
 
         StringAssert.StartsWith("#if UNITY_EDITOR", gizmoText);
         StringAssert.Contains("OnDrawGizmos", gizmoText);
@@ -84,7 +84,7 @@ public sealed class HealthBarAnchorTests
     [Test]
     public void HealthBarAnchorEditorExposesPositionAndSizeControls()
     {
-        var gizmoText = File.ReadAllText("Assets/Scripts/HealthBarAnchorAuthoring.EditorGizmos.cs");
+        var gizmoText = File.ReadAllText("Assets/Scripts/Health/HealthBarAnchorAuthoring.EditorGizmos.cs");
 
         StringAssert.Contains("CustomEditor(typeof(HealthBarAnchorAuthoring))", gizmoText);
         StringAssert.Contains("OnSceneGUI", gizmoText);

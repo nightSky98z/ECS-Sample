@@ -78,10 +78,10 @@ public sealed class MapCellTests
             LocalStaticMeshSpawned = 0,
             MonstersSpawned = 0
         };
-        var scriptsText = File.ReadAllText("Assets/Scripts/MapCellAuthoring.cs") +
-                          File.ReadAllText("Assets/Scripts/PCGStaticMeshLocalSpawnSystem.cs") +
-                          File.ReadAllText("Assets/Scripts/MonsterSpawnDirectorAuthoring.cs") +
-                          File.ReadAllText("Assets/Scripts/MapNavAuthoring.cs");
+        var scriptsText = File.ReadAllText("Assets/Scripts/Map/MapCellAuthoring.cs") +
+                          File.ReadAllText("Assets/Scripts/PCG/PCGStaticMeshLocalSpawnSystem.cs") +
+                          File.ReadAllText("Assets/Scripts/Monster/MonsterSpawnDirectorAuthoring.cs") +
+                          File.ReadAllText("Assets/Scripts/Map/MapNavAuthoring.cs");
 
         Assert.AreEqual(0, mapCell.LocalStaticMeshSpawned);
         Assert.AreEqual(0, mapCell.MonstersSpawned);
@@ -102,6 +102,6 @@ public sealed class MapCellTests
     [Test]
     public void OldPCGStaticMeshCellStreamingSystemIsRemoved()
     {
-        Assert.IsFalse(File.Exists("Assets/Scripts/PCGStaticMeshCellSystem.cs"));
+        Assert.IsFalse(File.Exists("Assets/Scripts/PCG/PCGStaticMeshCellSystem.cs"));
     }
 }

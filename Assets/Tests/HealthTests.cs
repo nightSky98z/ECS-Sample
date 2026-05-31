@@ -49,8 +49,8 @@ public sealed class HealthTests
     [Test]
     public void HealthDoesNotUseStructuralChangeRequestComponent()
     {
-        var componentText = File.ReadAllText("Assets/Scripts/MyComponents.cs");
-        var healthText = File.ReadAllText("Assets/Scripts/HealthMath.cs");
+        var componentText = File.ReadAllText("Assets/Scripts/Core/MyComponents.cs");
+        var healthText = File.ReadAllText("Assets/Scripts/Health/HealthMath.cs");
 
         Assert.IsFalse(componentText.Contains("HealthChangeRequest"));
         Assert.IsFalse(healthText.Contains("HealthChangeRequest"));
@@ -60,7 +60,7 @@ public sealed class HealthTests
     [Test]
     public void HealthKeepsMutableMaxHpWithRuntimeState()
     {
-        var componentText = File.ReadAllText("Assets/Scripts/MyComponents.cs");
+        var componentText = File.ReadAllText("Assets/Scripts/Core/MyComponents.cs");
 
         StringAssert.Contains("public struct HealthComponent", componentText);
         StringAssert.Contains("public int MaxHp", componentText);

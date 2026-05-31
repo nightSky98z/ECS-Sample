@@ -32,7 +32,7 @@ public sealed class SpawnRequestTests
     [Test]
     public void SpawnRequestIsBufferElementNotOneShotRequestEntity()
     {
-        var spawnSystemText = File.ReadAllText("Assets/Scripts/EntitySpawnSystem.cs");
+        var spawnSystemText = File.ReadAllText("Assets/Scripts/Spawning/EntitySpawnSystem.cs");
 
         Assert.IsTrue(typeof(IBufferElementData).IsAssignableFrom(typeof(SpawnRequest)));
         Assert.IsFalse(typeof(IComponentData).IsAssignableFrom(typeof(SpawnRequest)));
@@ -113,7 +113,7 @@ public sealed class SpawnRequestTests
     [Test]
     public void MonsterPrefabDoesNotUsePlayerAuthoring()
     {
-        var playerEntityGuid = ReadUnityGuid("Assets/Scripts/PlayerEntity.cs.meta");
+        var playerEntityGuid = ReadUnityGuid("Assets/Scripts/Player/PlayerEntity.cs.meta");
         var monsterPrefabText = File.ReadAllText("Assets/Prefab/Monster.prefab");
 
         StringAssert.DoesNotContain($"guid: {playerEntityGuid}", monsterPrefabText);

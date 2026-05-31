@@ -106,7 +106,7 @@ public sealed class SkillCombatTests
     [Test]
     public void PlayerBakerCreatesAttackAndBuffSlotEntities()
     {
-        var source = File.ReadAllText("Assets/Scripts/PlayerEntity.cs");
+        var source = File.ReadAllText("Assets/Scripts/Player/PlayerEntity.cs");
 
         StringAssert.Contains("CreateAdditionalEntity", source);
         StringAssert.Contains("DefaultAttackSkillEntity", source);
@@ -122,7 +122,7 @@ public sealed class SkillCombatTests
     [Test]
     public void SkillSystemsOperateOnEquippedSlotsAndDirectHealth()
     {
-        var source = File.ReadAllText("Assets/Scripts/SkillSystems.cs");
+        var source = File.ReadAllText("Assets/Scripts/Skills/SkillSystems.cs");
         var recordIndex = source.IndexOf("SkillAttackRangeDebugEvents.Record");
         var hitLoopIndex = source.IndexOf("for (var monsterIndex");
 
@@ -149,7 +149,7 @@ public sealed class SkillCombatTests
     [Test]
     public void SkillEntityDefinitionIsNotASlot()
     {
-        var source = File.ReadAllText("Assets/Scripts/AttackSkillAuthoring.cs");
+        var source = File.ReadAllText("Assets/Scripts/Skills/AttackSkillAuthoring.cs");
 
         StringAssert.Contains("SkillEntity", source);
         StringAssert.Contains("CreateAttackSkill", source);

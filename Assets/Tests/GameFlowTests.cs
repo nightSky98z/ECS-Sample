@@ -38,7 +38,7 @@ public sealed class GameFlowTests
     [Test]
     public void GameFlowBootstrapDisposesStageClearQuery()
     {
-        var source = File.ReadAllText("Assets/Scripts/GameFlowBootstrap.cs");
+        var source = File.ReadAllText("Assets/Scripts/Core/GameFlowBootstrap.cs");
 
         StringAssert.Contains("DisposeStageClearQuery()", source);
         StringAssert.Contains("stageClearQuery.Dispose()", source);

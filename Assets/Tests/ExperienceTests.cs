@@ -87,8 +87,8 @@ public sealed class ExperienceTests
     [Test]
     public void PlayerAndMonsterBakersAddExperienceData()
     {
-        var playerSource = File.ReadAllText("Assets/Scripts/PlayerEntity.cs");
-        var monsterSource = File.ReadAllText("Assets/Scripts/MonsterEntity.cs");
+        var playerSource = File.ReadAllText("Assets/Scripts/Player/PlayerEntity.cs");
+        var monsterSource = File.ReadAllText("Assets/Scripts/Monster/MonsterEntity.cs");
 
         StringAssert.Contains("ExperienceMath.CreateInitialExperience", playerSource);
         StringAssert.Contains("RequiredExperienceMultiplierPerLevel", playerSource);
@@ -123,7 +123,7 @@ public sealed class ExperienceTests
     [Test]
     public void MonsterDestroySystemAwardsExperienceToPlayer()
     {
-        var source = File.ReadAllText("Assets/Scripts/MonsterDestroySystem.cs");
+        var source = File.ReadAllText("Assets/Scripts/Monster/MonsterDestroySystem.cs");
 
         StringAssert.Contains("ExperienceReward", source);
         StringAssert.Contains("AddExperienceToPlayers", source);
@@ -133,7 +133,7 @@ public sealed class ExperienceTests
     [Test]
     public void LevelUpSystemRunsAfterMonsterDestroySystem()
     {
-        var source = File.ReadAllText("Assets/Scripts/ExperienceSystem.cs");
+        var source = File.ReadAllText("Assets/Scripts/Experience/ExperienceSystem.cs");
 
         StringAssert.Contains("LevelUpSystem", source);
         StringAssert.Contains("UpdateAfter(typeof(MonsterDestroySystem))", source);
