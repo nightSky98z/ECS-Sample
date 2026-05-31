@@ -68,7 +68,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: a4e30f8b71a64a6ab32b1b0dc2a47b90, type: 2}
+  - {fileID: 2100000, guid: df2f9e8c7ec041a8a2310c160834b5d9, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -128,7 +128,17 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::PCGStaticMeshAuthoring
   DrawPlacementPreview: 1
   StaticMeshEntries:
+  - Prefab: {fileID: 1000013527354224, guid: 4369bfb570c67dd4796c048ed31d6858, type: 3}
+    Weight: 1
+  - Prefab: {fileID: 1000013852149934, guid: 84c6bb21f836c9c4995d9306e6ca3ca7, type: 3}
+    Weight: 1
   - Prefab: {fileID: 1000012542690338, guid: 7ae254bddcf0def478298b88c82e882a, type: 3}
+    Weight: 1
+  - Prefab: {fileID: 1000013552779140, guid: e70352c946d2d3249b00e9e0a8b5a18f, type: 3}
+    Weight: 1
+  - Prefab: {fileID: 1000013451787930, guid: 06b059ea2b033674198473f8573ffd67, type: 3}
+    Weight: 1
+  - Prefab: {fileID: 1000010151976528, guid: ca0f87d8635ce0940b7441781fb4354d, type: 3}
     Weight: 1
   StaticMeshPrefabs: []
   InstanceCount: 32

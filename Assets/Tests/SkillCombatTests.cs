@@ -13,6 +13,7 @@ public sealed class SkillCombatTests
         Assert.AreEqual(5, PlayerCombatConstants.MaxAttackSkillCount);
         Assert.AreEqual(5, PlayerCombatConstants.MaxBuffSkillCount);
         Assert.AreEqual(10, PlayerCombatConstants.MaxSkillCount);
+        Assert.AreEqual(6, PlayerCombatConstants.MaxSkillLevel);
         Assert.AreEqual(0.6f, PlayerCombatConstants.TargetSelectionDistanceWeight);
     }
 
@@ -30,9 +31,23 @@ public sealed class SkillCombatTests
 
         Assert.AreEqual(0, skill.Config.Id);
         Assert.AreEqual(0, skill.Config.LogicId);
+        Assert.AreEqual(1, skill.Config.BaseTargetCount);
+        Assert.AreEqual(0f, skill.Config.TargetCountLevelWeight);
+        Assert.AreEqual(PlayerCombatConstants.MaxAttackCircleCount, skill.Config.MaxTargetCount);
+        Assert.AreEqual(SkillCountRoundMode.Floor, skill.Config.TargetCountRoundMode);
         Assert.AreEqual(0, skill.State.IsCooltime);
         Assert.AreEqual(0, skill.State.IsTriggered);
+        Assert.AreEqual(0, skill.State.IsCasting);
         Assert.AreEqual(0f, skill.State.Timer);
+        Assert.AreEqual(0f, skill.Timing.DamageDelay);
+        Assert.AreEqual(0f, skill.Timing.SfxDelay);
+        Assert.AreEqual(1f, skill.Timing.SfxVolume);
+        Assert.AreEqual(0f, skill.Timing.VfxDelay);
+        Assert.AreEqual(1f, skill.Timing.VfxDuration);
+        Assert.AreEqual(1f, skill.Timing.VfxPrefabRadius);
+        Assert.AreEqual(0f, skill.Timing.VfxDisplayRadius);
+        Assert.AreEqual(0, skill.Timing.HasSfx);
+        Assert.AreEqual(0, skill.Timing.HasVfx);
     }
 
     [Test]
@@ -56,6 +71,87 @@ public sealed class SkillCombatTests
         Assert.AreEqual(0, skill.Config.LogicId);
         Assert.AreEqual(0, skill.State.IsCooltime);
         Assert.AreEqual(0, skill.State.IsTriggered);
+    }
+
+    [Test]
+    public void AttackSkillAuthoringUtilityCreatesTimingData()
+    {
+        var skill = AttackSkillAuthoringUtility.CreateAttackSkill(
+            id: 6,
+            baseDamage: 30f,
+            cooltime: 1.25f,
+            baseTargetRange: 24f,
+            baseAttackRange: 5f,
+            level: 3,
+            logicId: 0,
+            damageDelay: 0.2f,
+            sfxDelay: 0.05f,
+            sfxVolume: 0.75f,
+            vfxDelay: 0.1f,
+            vfxDuration: 0.8f,
+            vfxPrefabRadius: 2f,
+            vfxDisplayRadius: 6f);
+
+        Assert.AreEqual(0.2f, skill.Timing.DamageDelay);
+        Assert.AreEqual(0.05f, skill.Timing.SfxDelay);
+        Assert.AreEqual(0.75f, skill.Timing.SfxVolume);
+        Assert.AreEqual(0.1f, skill.Timing.VfxDelay);
+        Assert.AreEqual(0.8f, skill.Timing.VfxDuration);
+        Assert.AreEqual(2f, skill.Timing.VfxPrefabRadius);
+        Assert.AreEqual(6f, skill.Timing.VfxDisplayRadius);
+        Assert.AreEqual(0, skill.Timing.HasSfx);
+        Assert.AreEqual(0, skill.Timing.HasVfx);
+        Assert.AreEqual(0, skill.State.IsCasting);
+        Assert.AreEqual(0, skill.State.DamageApplied);
+        Assert.AreEqual(0, skill.State.SfxPlayed);
+        Assert.AreEqual(0, skill.State.VfxSpawned);
+    }
+
+    [Test]
+    public void SkillPresentationCompletionUsesExplicitPresentationFlags()
+    {
+        var state = new AttackSkillState
+        {
+            SfxPlayed = 0,
+            VfxSpawned = 0
+        };
+        var timing = new AttackSkillTimingConfig
+        {
+            HasSfx = 1,
+            HasVfx = 1
+        };
+
+        Assert.IsFalse(SkillMath.IsPresentationComplete(state, timing));
+
+        state.SfxPlayed = 1;
+        Assert.IsFalse(SkillMath.IsPresentationComplete(state, timing));
+
+        state.VfxSpawned = 1;
+        Assert.IsTrue(SkillMath.IsPresentationComplete(state, timing));
+
+        timing.HasSfx = 0;
+        timing.HasVfx = 0;
+        state.SfxPlayed = 0;
+        state.VfxSpawned = 0;
+        Assert.IsTrue(SkillMath.IsPresentationComplete(state, timing));
+    }
+
+    [Test]
+    public void SkillVfxScaleUsesDisplayRadiusWhenConfigured()
+    {
+        var timing = new AttackSkillTimingConfig
+        {
+            VfxPrefabRadius = 2f,
+            VfxDisplayRadius = 6f
+        };
+
+        Assert.AreEqual(3f, SkillMath.CalculateVfxScale(4f, timing), 0.0001f);
+
+        timing.VfxDisplayRadius = 0f;
+        Assert.AreEqual(2f, SkillMath.CalculateVfxScale(4f, timing), 0.0001f);
+
+        timing.VfxPrefabRadius = 0f;
+        Assert.Greater(SkillMath.CalculateVfxScale(4f, timing), 0f);
     }
 
     [Test]
@@ -104,6 +200,73 @@ public sealed class SkillCombatTests
     }
 
     [Test]
+    public void AttackCircleCountUsesBaseCountAtLevelOne()
+    {
+        Assert.AreEqual(
+            2,
+            SkillMath.CalculateAttackCircleCount(
+                level: 1,
+                baseTargetCount: 2,
+                targetCountLevelWeight: 0.5f,
+                maxTargetCount: 10,
+                roundMode: SkillCountRoundMode.Floor));
+    }
+
+    [Test]
+    public void AttackCircleCountSupportsRoundingModesAndCap()
+    {
+        Assert.AreEqual(
+            2,
+            SkillMath.CalculateAttackCircleCount(
+                level: 2,
+                baseTargetCount: 1,
+                targetCountLevelWeight: 0.5f,
+                maxTargetCount: 10,
+                roundMode: SkillCountRoundMode.Round));
+        Assert.AreEqual(
+            1,
+            SkillMath.CalculateAttackCircleCount(
+                level: 2,
+                baseTargetCount: 1,
+                targetCountLevelWeight: 0.5f,
+                maxTargetCount: 10,
+                roundMode: SkillCountRoundMode.Floor));
+        Assert.AreEqual(
+            2,
+            SkillMath.CalculateAttackCircleCount(
+                level: 2,
+                baseTargetCount: 1,
+                targetCountLevelWeight: 0.5f,
+                maxTargetCount: 10,
+                roundMode: SkillCountRoundMode.Ceil));
+        Assert.AreEqual(
+            3,
+            SkillMath.CalculateAttackCircleCount(
+                level: 99,
+                baseTargetCount: 1,
+                targetCountLevelWeight: 1f,
+                maxTargetCount: 3,
+                roundMode: SkillCountRoundMode.Floor));
+    }
+
+    [Test]
+    public void SkillCastTargetStoresMultipleAttackCirclePositions()
+    {
+        var castTarget = new SkillCastTarget
+        {
+            AttackRange = 4f,
+            Damage = 10
+        };
+
+        castTarget.Positions.Add(new float3(1f, 0f, 2f));
+        castTarget.Positions.Add(new float3(3f, 0f, 4f));
+
+        Assert.AreEqual(2, castTarget.Positions.Length);
+        Assert.AreEqual(new float3(1f, 0f, 2f), castTarget.Positions[0]);
+        Assert.AreEqual(new float3(3f, 0f, 4f), castTarget.Positions[1]);
+    }
+
+    [Test]
     public void PlayerBakerCreatesAttackAndBuffSlotEntities()
     {
         var source = File.ReadAllText("Assets/Scripts/Player/PlayerEntity.cs");
@@ -111,6 +274,7 @@ public sealed class SkillCombatTests
         StringAssert.Contains("CreateAdditionalEntity", source);
         StringAssert.Contains("DefaultAttackSkillEntity", source);
         StringAssert.Contains("DependsOn(authoring.DefaultAttackSkillEntity)", source);
+        StringAssert.Contains("IAttackSkillDefinitionAuthoring", source);
         StringAssert.Contains("CreateDefaultAttackSkill", source);
         StringAssert.Contains("PlayerCombatConstants.MaxAttackSkillCount", source);
         StringAssert.Contains("PlayerCombatConstants.MaxBuffSkillCount", source);
@@ -131,7 +295,9 @@ public sealed class SkillCombatTests
         StringAssert.Contains("BuffSkillSlotTag", source);
         StringAssert.Contains("SystemAPI.Query<RefRO<AttackSkillConfig>, RefRO<AttackSkillState>, RefRO<SkillSlotComponent>>", source);
         StringAssert.Contains("AttackSkillConfig", source);
+        StringAssert.Contains("AttackSkillTimingConfig", source);
         StringAssert.Contains("AttackSkillState", source);
+        StringAssert.Contains("SkillCastTarget", source);
         StringAssert.Contains("ExperienceComponent", source);
         StringAssert.Contains("PlayerLevelStats", source);
         StringAssert.Contains("CalculatePlayerSkillDamageRate", source);
@@ -153,10 +319,31 @@ public sealed class SkillCombatTests
 
         StringAssert.Contains("SkillEntity", source);
         StringAssert.Contains("CreateAttackSkill", source);
+        StringAssert.Contains("SfxClip", source);
+        StringAssert.Contains("VfxPrefab", source);
+        StringAssert.Contains("AttackSkillPresentation", source);
         Assert.IsFalse(source.Contains("AddComponent(entity, definition.State)"));
         Assert.IsFalse(source.Contains("SkillSlotComponent"));
         Assert.IsFalse(source.Contains("EquippedSkillTag"));
         Assert.IsFalse(source.Contains("AttackSkillSlotTag"));
+    }
+
+    [Test]
+    public void SkillPresentationSystemUsesUnityObjectRefsForAudioAndVfx()
+    {
+        var source = File.ReadAllText("Assets/Scripts/Skills/SkillPresentationSystem.cs");
+        var componentSource = File.ReadAllText("Assets/Scripts/Skills/SkillComponents.cs");
+
+        StringAssert.Contains("AttackSkillPresentation", source);
+        StringAssert.Contains("AudioSource.PlayClipAtPoint", source);
+        StringAssert.Contains("UnityEngine.Object.Instantiate", source);
+        StringAssert.Contains("UnityEngine.Object.Destroy", source);
+        StringAssert.Contains("CalculateVfxScale", source);
+        StringAssert.Contains("localScale", source);
+        StringAssert.Contains("AttackSkillTimingConfig", source);
+        StringAssert.Contains("SkillCastTarget", source);
+        StringAssert.Contains("UnityObjectRef<AudioClip>", componentSource);
+        StringAssert.Contains("UnityObjectRef<GameObject>", componentSource);
     }
 
     [Test]
@@ -166,8 +353,14 @@ public sealed class SkillCombatTests
         var skillPrefab = File.ReadAllText(prefabPath);
         var playerPrefab = File.ReadAllText("Assets/Prefab/Player.prefab");
 
-        StringAssert.Contains("SkillEntity_DefaultCircleAttack", skillPrefab);
-        StringAssert.Contains("AttackSkillAuthoring", skillPrefab);
+        StringAssert.Contains("SkillEntity_瞬時インパクトSkill", skillPrefab);
+        StringAssert.Contains("InstantImpactSkillAuthoring", skillPrefab);
+        StringAssert.Contains("BaseTargetCount", skillPrefab);
+        StringAssert.Contains("TargetCountLevelWeight", skillPrefab);
+        StringAssert.Contains("MaxTargetCount", skillPrefab);
+        StringAssert.Contains("TargetCountRoundMode", skillPrefab);
+        StringAssert.Contains("VfxPrefabRadius", skillPrefab);
+        StringAssert.Contains("VfxDisplayRadius", skillPrefab);
         StringAssert.Contains("BaseDamage", skillPrefab);
         StringAssert.Contains("DefaultAttackSkillEntity", playerPrefab);
         StringAssert.Contains("e36a6cb0231c4d948b5e88aa9102c316", playerPrefab);

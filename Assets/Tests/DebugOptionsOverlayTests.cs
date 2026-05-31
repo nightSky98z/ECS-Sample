@@ -131,6 +131,45 @@ public sealed class DebugOptionsOverlayTests
     }
 
     [Test]
+    public void DebugOptionsAppliesSkillLevelDeltaInsideGameplayCap()
+    {
+        Assert.AreEqual(1, DebugOptionsOverlayMath.ApplySkillLevelDelta(1, -1));
+        Assert.AreEqual(2, DebugOptionsOverlayMath.ApplySkillLevelDelta(1, 1));
+        Assert.AreEqual(5, DebugOptionsOverlayMath.ApplySkillLevelDelta(6, -1));
+        Assert.AreEqual(PlayerCombatConstants.MaxSkillLevel, DebugOptionsOverlayMath.ApplySkillLevelDelta(6, 1));
+    }
+
+    [Test]
+    public void DebugOptionsFormatsSkillLevelSummary()
+    {
+        Assert.AreEqual("スキルLv 3", DebugOptionsOverlayMath.FormatSkillLevelSummary(3, 3));
+        Assert.AreEqual("スキルLv 2-5", DebugOptionsOverlayMath.FormatSkillLevelSummary(5, 2));
+        Assert.AreEqual("スキルLv 1-6", DebugOptionsOverlayMath.FormatSkillLevelSummary(-4, 99));
+    }
+
+    [Test]
+    public void DebugOptionsExposeSkillLevelButtons()
+    {
+        var source = File.ReadAllText("Assets/Scripts/Debug/DebugOptionsOverlay.cs");
+
+        StringAssert.Contains("スキルLv", source);
+        StringAssert.Contains("skillLevelMinusButtonImage", source);
+        StringAssert.Contains("skillLevelPlusButtonImage", source);
+        StringAssert.Contains("TryAdjustPlayerSkillSlotLevels(-1)", source);
+        StringAssert.Contains("TryAdjustPlayerSkillSlotLevels(1)", source);
+        StringAssert.Contains("ReadPlayerSkillLevelSummary", source);
+        StringAssert.Contains("ReadAttackSkillLevelSummary", source);
+        StringAssert.Contains("ReadBuffSkillLevelSummary", source);
+        StringAssert.Contains("AdjustAttackSkillSlotLevels", source);
+        StringAssert.Contains("AdjustBuffSkillSlotLevels", source);
+        StringAssert.Contains("ComponentType.ReadWrite<AttackSkillState>()", source);
+        StringAssert.Contains("ComponentType.ReadWrite<BuffSkillState>()", source);
+        StringAssert.Contains("PlayerCombatConstants.MaxSkillLevel", source);
+        Assert.IsFalse(source.Contains("TryAdjustFirstPlayerAttackSkillLevel"));
+        Assert.IsFalse(source.Contains("TryReadFirstPlayerAttackSkill"));
+    }
+
+    [Test]
     public void DebugOptionsLevelDisplayIsDevelopmentOnlyAndUsesPlayerExperience()
     {
         var source = File.ReadAllText("Assets/Scripts/Debug/DebugOptionsOverlay.cs");

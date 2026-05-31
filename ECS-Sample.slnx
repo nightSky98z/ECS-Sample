@@ -1,8 +1,11 @@
 ﻿<Solution>
-  <Project Path="lilToon.Editor.csproj" />
+  <Project Path="MagicaClothV2.csproj" />
+  <Project Path="Assembly-CSharp-Editor.csproj" />
+  <Project Path="MagicaClothV2.Editor.csproj" />
   <Project Path="Assembly-CSharp.csproj" />
+  <Project Path="lilToon.Editor.csproj" />
   <Project Path="sc.fae.editor.csproj" />
   <Project Path="sc.fae.runtime.csproj" />
-  <Project Path="Assembly-CSharp-Editor.csproj" />
+  <Project Path="MagicaCloth2Example.csproj" />
   <Project Path="lilToon.Editor.External.csproj" />
 </Solution>

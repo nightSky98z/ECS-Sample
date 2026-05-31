@@ -4,22 +4,13 @@ using UnityEngine;
 using UnityEngine.Serialization;
 
 /// <summary>
-/// Attack skill 定義を供給する Authoring の境界。
+/// Id0 の瞬時インパクト攻撃スキル定義。
+/// Runtime 攻撃処理は SkillLogicSystem の LogicId 0 を使う。
 /// </summary>
-public interface IAttackSkillDefinitionAuthoring
+public sealed class InstantImpactSkillAuthoring : MonoBehaviour, IAttackSkillDefinitionAuthoring
 {
-    AttackSkillDefinition CreateAttackSkill();
-    bool TryCreatePresentation(out AttackSkillPresentation presentation);
-}
-
-/// <summary>
-/// SkillEntity prefab / scene object で attack skill の定義値を編集するための Authoring。
-/// </summary>
-public sealed class AttackSkillAuthoring : MonoBehaviour, IAttackSkillDefinitionAuthoring
-{
-    [Tooltip("スキル定義 ID。UI やデバッグ表示でこのスキルを識別する。")]
-    [SerializeField]
-    private int Id = 0;
+    private const int SkillId = 0;
+    private const int LogicId = 0;
 
     [Tooltip("バフやレベル倍率を掛ける前の基礎ダメージ。")]
     [SerializeField]
@@ -31,7 +22,7 @@ public sealed class AttackSkillAuthoring : MonoBehaviour, IAttackSkillDefinition
 
     [Tooltip("攻撃対象を探す XZ 半径。")]
     [SerializeField]
-    private float BaseTargetRange = 30f;
+    private float BaseTargetRange = 20f;
 
     [Tooltip("選ばれた対象を中心にダメージを与える XZ 半径。")]
     [SerializeField]
@@ -58,18 +49,14 @@ public sealed class AttackSkillAuthoring : MonoBehaviour, IAttackSkillDefinition
     [SerializeField]
     private int Level = 1;
 
-    [Tooltip("SkillLogicSystem が実行する攻撃ロジック ID。")]
-    [SerializeField]
-    private int LogicId = 0;
-
     [Header("タイミング")]
     [Tooltip("発動してからダメージ判定が出るまでの秒数。")]
     [SerializeField]
-    private float DamageDelay = 0f;
+    private float DamageDelay = 0.2f;
 
     [Tooltip("発動してから SFX を再生するまでの秒数。")]
     [SerializeField]
-    private float SfxDelay = 0f;
+    private float SfxDelay = 0.1f;
 
     [Tooltip("SFX の音量。1 が基準音量。")]
     [SerializeField]
@@ -77,7 +64,7 @@ public sealed class AttackSkillAuthoring : MonoBehaviour, IAttackSkillDefinition
 
     [Tooltip("発動してから VFX を生成するまでの秒数。")]
     [SerializeField]
-    private float VfxDelay = 0f;
+    private float VfxDelay = 0.2f;
 
     [Tooltip("生成した VFX GameObject を残す秒数。0 なら即時破棄。")]
     [SerializeField]
@@ -126,7 +113,7 @@ public sealed class AttackSkillAuthoring : MonoBehaviour, IAttackSkillDefinition
     public AttackSkillDefinition CreateAttackSkill()
     {
         var definition = AttackSkillAuthoringUtility.CreateAttackSkill(
-            Id,
+            SkillId,
             BaseDamage,
             Cooltime,
             BaseTargetRange,
@@ -172,9 +159,9 @@ public sealed class AttackSkillAuthoring : MonoBehaviour, IAttackSkillDefinition
         config.TargetCountRoundMode = TargetCountRoundMode;
     }
 
-    private sealed class Baker : Baker<AttackSkillAuthoring>
+    private sealed class Baker : Baker<InstantImpactSkillAuthoring>
     {
-        public override void Bake(AttackSkillAuthoring authoring)
+        public override void Bake(InstantImpactSkillAuthoring authoring)
         {
             var entity = GetEntity(TransformUsageFlags.None);
             var definition = authoring.CreateAttackSkill();
@@ -197,109 +184,5 @@ public sealed class AttackSkillAuthoring : MonoBehaviour, IAttackSkillDefinition
                 AddComponent(entity, presentation);
             }
         }
-    }
-}
-
-/// <summary>
-/// SkillEntity authoring が使うデータ生成関数。
-/// </summary>
-public static class AttackSkillAuthoringUtility
-{
-    public static AttackSkillDefinition CreateAttackSkill(
-        int id,
-        float baseDamage,
-        float cooltime,
-        float baseTargetRange,
-        float baseAttackRange,
-        int level,
-        int logicId)
-    {
-        return CreateAttackSkill(
-            id,
-            baseDamage,
-            cooltime,
-            baseTargetRange,
-            baseAttackRange,
-            level,
-            logicId,
-            damageDelay: 0f,
-            sfxDelay: 0f,
-            sfxVolume: 1f,
-            vfxDelay: 0f,
-            vfxDuration: 1f,
-            vfxPrefabRadius: 1f,
-            vfxDisplayRadius: 0f);
-    }
-
-    public static AttackSkillDefinition CreateAttackSkill(
-        int id,
-        float baseDamage,
-        float cooltime,
-        float baseTargetRange,
-        float baseAttackRange,
-        int level,
-        int logicId,
-        float damageDelay,
-        float sfxDelay,
-        float sfxVolume,
-        float vfxDelay,
-        float vfxDuration)
-    {
-        return CreateAttackSkill(
-            id,
-            baseDamage,
-            cooltime,
-            baseTargetRange,
-            baseAttackRange,
-            level,
-            logicId,
-            damageDelay,
-            sfxDelay,
-            sfxVolume,
-            vfxDelay,
-            vfxDuration,
-            vfxPrefabRadius: 1f,
-            vfxDisplayRadius: 0f);
-    }
-
-    public static AttackSkillDefinition CreateAttackSkill(
-        int id,
-        float baseDamage,
-        float cooltime,
-        float baseTargetRange,
-        float baseAttackRange,
-        int level,
-        int logicId,
-        float damageDelay,
-        float sfxDelay,
-        float sfxVolume,
-        float vfxDelay,
-        float vfxDuration,
-        float vfxPrefabRadius,
-        float vfxDisplayRadius)
-    {
-        var definition = SkillDefaults.CreateDefaultAttackSkill(
-            id,
-            math.max(0f, baseDamage),
-            math.max(0f, cooltime),
-            math.max(0f, baseTargetRange),
-            math.max(0f, baseAttackRange),
-            math.max(1, level),
-            logicId);
-
-        definition.Timing = new AttackSkillTimingConfig
-        {
-            DamageDelay = math.max(0f, damageDelay),
-            SfxDelay = math.max(0f, sfxDelay),
-            SfxVolume = math.max(0f, sfxVolume),
-            VfxDelay = math.max(0f, vfxDelay),
-            VfxDuration = math.max(0f, vfxDuration),
-            VfxPrefabRadius = math.max(0.0001f, vfxPrefabRadius),
-            VfxDisplayRadius = math.max(0f, vfxDisplayRadius),
-            HasSfx = 0,
-            HasVfx = 0
-        };
-
-        return definition;
     }
 }

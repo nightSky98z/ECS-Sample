@@ -1,3 +1,6 @@
+using System.Collections.Generic;
+using System.IO;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Transforms;
 using Unity.Mathematics;
@@ -226,5 +229,76 @@ public sealed class PCGStaticMeshTests
         var weights = new[] { 0f, -3f };
 
         Assert.AreEqual(-1, PCGStaticMeshUtility.SelectWeightedIndex(weights, 0f));
+    }
+
+    [Test]
+    public void PcgStaticMeshPrefabReferencesResolveToAssets()
+    {
+        var prefabPaths = ResolvePcgStaticMeshPrefabPaths();
+
+        Assert.IsNotEmpty(prefabPaths);
+    }
+
+    [Test]
+    public void PcgLodPrefabsDoNotUseUnityStaticFlags()
+    {
+        var prefabPaths = ResolvePcgStaticMeshPrefabPaths();
+
+        for (var prefabIndex = 0; prefabIndex < prefabPaths.Count; prefabIndex++)
+        {
+            var prefabPath = prefabPaths[prefabIndex];
+            var prefabText = File.ReadAllText(prefabPath);
+
+            if (!prefabText.Contains("LODGroup:"))
+            {
+                continue;
+            }
+
+            Assert.IsFalse(
+                HasNonZeroStaticEditorFlags(prefabText),
+                $"{prefabPath} has Unity Static flags. Runtime-spawned PCG LOD prefabs must stay dynamic for Entities Graphics LOD.");
+        }
+    }
+
+    private static List<string> ResolvePcgStaticMeshPrefabPaths()
+    {
+        var templateText = File.ReadAllText("Assets/Prefab/Plane_Template.prefab");
+        var matches = Regex.Matches(
+            templateText,
+            @"Prefab:\s*\{fileID:\s*-?\d+,\s*guid:\s*([0-9a-f]{32}),\s*type:\s*3\}");
+        var prefabPaths = new List<string>();
+
+        for (var matchIndex = 0; matchIndex < matches.Count; matchIndex++)
+        {
+            var guid = matches[matchIndex].Groups[1].Value;
+            var prefabPath = FindAssetPathByGuid(guid);
+
+            Assert.IsNotNull(prefabPath, $"Missing prefab asset for GUID {guid}.");
+            prefabPaths.Add(prefabPath);
+        }
+
+        return prefabPaths;
+    }
+
+    private static string FindAssetPathByGuid(string guid)
+    {
+        var metaPaths = Directory.GetFiles("Assets", "*.meta", SearchOption.AllDirectories);
+
+        for (var metaIndex = 0; metaIndex < metaPaths.Length; metaIndex++)
+        {
+            var metaPath = metaPaths[metaIndex];
+
+            if (File.ReadAllText(metaPath).Contains($"guid: {guid}"))
+            {
+                return metaPath.Substring(0, metaPath.Length - ".meta".Length);
+            }
+        }
+
+        return null;
+    }
+
+    private static bool HasNonZeroStaticEditorFlags(string prefabText)
+    {
+        return Regex.IsMatch(prefabText, @"m_StaticEditorFlags:\s*(?!0\b)-?\d+");
     }
 }

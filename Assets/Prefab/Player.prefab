@@ -237,11 +237,12 @@ MonoBehaviour:
   BaseRequiredExperience: 50
   RequiredExperienceMultiplierPerLevel: 2
   GravityAcceleration: -9.81
+  FallRescueDepth: 3
   DefaultAttackSkillEntity: {fileID: 6118745201134000003, guid: e36a6cb0231c4d948b5e88aa9102c316, type: 3}
   DefaultAttackSkillId: 0
   DefaultAttackSkillBaseDamage: 10
   DefaultAttackSkillCooltime: 1
-  DefaultAttackSkillBaseTargetRange: 30
+  DefaultAttackSkillBaseTargetRange: 15
   DefaultAttackSkillBaseAttackRange: 4
   DefaultAttackSkillLevel: 1
   DefaultAttackSkillLogicId: 0

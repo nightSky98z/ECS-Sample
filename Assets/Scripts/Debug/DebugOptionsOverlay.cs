@@ -25,10 +25,14 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
     private const float FpsToggleY = 72f;
     private const float LevelToggleY = 100f;
     private const float SkillSlotToggleY = 128f;
-    private const float PlayerColliderToggleY = 156f;
-    private const float SkillTargetRangeToggleY = 184f;
-    private const float SkillAttackRangeToggleY = 212f;
-    private const float WindowFpsY = 240f;
+    private const float SkillLevelControlY = 156f;
+    private const float PlayerColliderToggleY = 188f;
+    private const float SkillTargetRangeToggleY = 216f;
+    private const float SkillAttackRangeToggleY = 244f;
+    private const float WindowFpsY = 272f;
+    private const float SkillLevelButtonSize = 22f;
+    private const float SkillLevelMinusButtonX = 168f;
+    private const float SkillLevelPlusButtonX = 198f;
     private const float SlotOverlayX = 12f;
     private const float SlotOverlayY = 80f;
     private const float SlotOverlayWidth = 144f;
@@ -40,11 +44,13 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
     private const float SlotIconSize = 18f;
     private const float SlotIconGap = 4f;
 
-    private static readonly Vector2 DefaultWindowSize = new Vector2(320f, 276f);
-    private static readonly Vector2 MinimumWindowSize = new Vector2(260f, 216f);
+    private static readonly Vector2 DefaultWindowSize = new Vector2(320f, 308f);
+    private static readonly Vector2 MinimumWindowSize = new Vector2(260f, 248f);
     private static readonly Color WindowBackgroundColor = new Color(0f, 0f, 0f, 0.36f);
     private static readonly Color CheckboxOnColor = new Color(0.92f, 0.92f, 0.92f, 1f);
     private static readonly Color CheckboxOffColor = new Color(0.06f, 0.06f, 0.06f, 1f);
+    private static readonly Color ButtonColor = new Color(0.18f, 0.34f, 0.52f, 0.95f);
+    private static readonly Color ButtonDisabledColor = new Color(0.08f, 0.08f, 0.08f, 0.75f);
     private static readonly Color TextColor = Color.white;
     private static readonly Color SlotEmptyColor = new Color(0.05f, 0.05f, 0.05f, 0.72f);
     private static readonly Color SlotReadyColor = new Color(0.08f, 0.38f, 0.18f, 0.92f);
@@ -63,6 +69,7 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
     private Text levelOverlayText;
     private Text slotAttackLabelText;
     private Text slotBuffLabelText;
+    private Text skillLevelControlText;
     private Text windowFpsText;
     private Image fpsCheckboxImage;
     private Image levelCheckboxImage;
@@ -70,6 +77,8 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
     private Image playerColliderCheckboxImage;
     private Image skillTargetRangeCheckboxImage;
     private Image skillAttackRangeCheckboxImage;
+    private Image skillLevelMinusButtonImage;
+    private Image skillLevelPlusButtonImage;
     private bool isWindowOpen;
     private bool isFpsVisible;
     private bool isLevelVisible;
@@ -95,6 +104,15 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
     {
         public string Text;
         public Color Color;
+    }
+
+    private struct SkillLevelSummary
+    {
+        public int MinLevel;
+        public int MaxLevel;
+        public byte HasAnySkill;
+        public byte CanDecrease;
+        public byte CanIncrease;
     }
 
     /// <summary>
@@ -245,6 +263,7 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
             levelOverlayText != null &&
             slotAttackLabelText != null &&
             slotBuffLabelText != null &&
+            skillLevelControlText != null &&
             AreSkillSlotIconsReady() &&
             windowFpsText != null &&
             fpsCheckboxImage != null &&
@@ -252,7 +271,9 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
             slotCheckboxImage != null &&
             playerColliderCheckboxImage != null &&
             skillTargetRangeCheckboxImage != null &&
-            skillAttackRangeCheckboxImage != null)
+            skillAttackRangeCheckboxImage != null &&
+            skillLevelMinusButtonImage != null &&
+            skillLevelPlusButtonImage != null)
         {
             return true;
         }
@@ -304,6 +325,11 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         fpsCheckboxImage = CreateCheckboxRow(windowRoot, FpsToggleY, "FPS 表示");
         levelCheckboxImage = CreateCheckboxRow(windowRoot, LevelToggleY, "Level 表示");
         slotCheckboxImage = CreateCheckboxRow(windowRoot, SkillSlotToggleY, "スキルスロット表示");
+        skillLevelControlText = CreateText("skill-level-control", windowRoot, 17, FontStyle.Normal);
+        SetTopLeftRect(skillLevelControlText.rectTransform, 44f, SkillLevelControlY, 118f, 24f);
+        skillLevelControlText.text = "スキルLv --";
+        skillLevelMinusButtonImage = CreateSmallButton(windowRoot, "skill-level-minus-button", "-");
+        skillLevelPlusButtonImage = CreateSmallButton(windowRoot, "skill-level-plus-button", "+");
         playerColliderCheckboxImage = CreateCheckboxRow(
             windowRoot,
             PlayerColliderToggleY,
@@ -392,6 +418,11 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
                 return;
             }
 
+            if (TryHandleSkillLevelButton(mousePosition))
+            {
+                return;
+            }
+
             if (TryToggleClickedOption(mousePosition))
             {
                 return;
@@ -445,6 +476,23 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
                 Screen.height,
                 MinimumWindowSize);
         }
+    }
+
+    private bool TryHandleSkillLevelButton(Vector2 mousePosition)
+    {
+        if (GetSkillLevelMinusButtonRect().Contains(mousePosition))
+        {
+            TryAdjustPlayerSkillSlotLevels(-1);
+            return true;
+        }
+
+        if (GetSkillLevelPlusButtonRect().Contains(mousePosition))
+        {
+            TryAdjustPlayerSkillSlotLevels(1);
+            return true;
+        }
+
+        return false;
     }
 
     private bool TryToggleClickedOption(Vector2 mousePosition)
@@ -512,8 +560,28 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
             windowRect.height - ResizeHandleSize,
             ResizeHandleSize,
             ResizeHandleSize);
+        SetTopLeftRect(skillLevelControlText.rectTransform, 44f, SkillLevelControlY, 118f, 24f);
+        SetTopLeftRect(
+            skillLevelMinusButtonImage.rectTransform,
+            SkillLevelMinusButtonX,
+            SkillLevelControlY + 1f,
+            SkillLevelButtonSize,
+            SkillLevelButtonSize);
+        SetTopLeftRect(
+            skillLevelPlusButtonImage.rectTransform,
+            SkillLevelPlusButtonX,
+            SkillLevelControlY + 1f,
+            SkillLevelButtonSize,
+            SkillLevelButtonSize);
 
         var fpsText = fps.ToString("0.0", CultureInfo.InvariantCulture);
+        var hasSkillLevel = false;
+        var skillLevelSummary = default(SkillLevelSummary);
+
+        if (isWindowOpen)
+        {
+            hasSkillLevel = ReadPlayerSkillLevelSummary(out skillLevelSummary);
+        }
 
         fpsRoot.gameObject.SetActive(isFpsVisible);
         fpsOverlayText.text = $"FPS {fpsText}";
@@ -530,6 +598,17 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         windowRoot.gameObject.SetActive(isWindowOpen);
         windowFpsText.gameObject.SetActive(isFpsVisible);
         windowFpsText.text = $"FPS: {fpsText}";
+        skillLevelControlText.text = hasSkillLevel
+            ? DebugOptionsOverlayMath.FormatSkillLevelSummary(
+                skillLevelSummary.MinLevel,
+                skillLevelSummary.MaxLevel)
+            : "スキルLv --";
+        skillLevelMinusButtonImage.color = hasSkillLevel && skillLevelSummary.CanDecrease != 0
+            ? ButtonColor
+            : ButtonDisabledColor;
+        skillLevelPlusButtonImage.color = hasSkillLevel && skillLevelSummary.CanIncrease != 0
+            ? ButtonColor
+            : ButtonDisabledColor;
 
         UpdateCheckbox(fpsCheckboxImage, isFpsVisible);
         UpdateCheckbox(levelCheckboxImage, isLevelVisible);
@@ -610,6 +689,7 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         levelOverlayText = null;
         slotAttackLabelText = null;
         slotBuffLabelText = null;
+        skillLevelControlText = null;
         ClearSkillSlotIconReferences();
         windowFpsText = null;
         fpsCheckboxImage = null;
@@ -618,6 +698,8 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         playerColliderCheckboxImage = null;
         skillTargetRangeCheckboxImage = null;
         skillAttackRangeCheckboxImage = null;
+        skillLevelMinusButtonImage = null;
+        skillLevelPlusButtonImage = null;
         ownsOverlayCanvas = false;
     }
 
@@ -653,6 +735,59 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
 
         experience = query.GetSingleton<ExperienceComponent>();
         return true;
+    }
+
+    private static bool ReadPlayerSkillLevelSummary(out SkillLevelSummary summary)
+    {
+        summary = new SkillLevelSummary
+        {
+            MinLevel = PlayerCombatConstants.MaxSkillLevel,
+            MaxLevel = PlayerCombatConstants.MinSkillLevel,
+            HasAnySkill = 0,
+            CanDecrease = 0,
+            CanIncrease = 0
+        };
+
+        var world = World.DefaultGameObjectInjectionWorld;
+
+        if (world == null || !world.IsCreated)
+        {
+            return false;
+        }
+
+        var entityManager = world.EntityManager;
+
+        if (!TryReadPlayerEntity(entityManager, out var playerEntity))
+        {
+            return false;
+        }
+
+        ReadAttackSkillLevelSummary(entityManager, playerEntity, ref summary);
+        ReadBuffSkillLevelSummary(entityManager, playerEntity, ref summary);
+        return summary.HasAnySkill != 0;
+    }
+
+    private static bool TryAdjustPlayerSkillSlotLevels(int delta)
+    {
+        var world = World.DefaultGameObjectInjectionWorld;
+
+        if (world == null || !world.IsCreated)
+        {
+            return false;
+        }
+
+        var entityManager = world.EntityManager;
+
+        if (!TryReadPlayerEntity(entityManager, out var playerEntity))
+        {
+            return false;
+        }
+
+        var changedCount = 0;
+
+        changedCount += AdjustAttackSkillSlotLevels(entityManager, playerEntity, delta);
+        changedCount += AdjustBuffSkillSlotLevels(entityManager, playerEntity, delta);
+        return changedCount > 0;
     }
 
     private static void ReadPlayerSkillSlotIcons(SkillSlotIconData[] icons)
@@ -754,6 +889,183 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         entities.Dispose();
         query.Dispose();
         return true;
+    }
+
+    private static void ReadAttackSkillLevelSummary(
+        EntityManager entityManager,
+        Entity playerEntity,
+        ref SkillLevelSummary summary)
+    {
+        var query = entityManager.CreateEntityQuery(
+            ComponentType.ReadOnly<SkillSlotComponent>(),
+            ComponentType.ReadOnly<AttackSkillSlotTag>(),
+            ComponentType.ReadOnly<EquippedSkillTag>(),
+            ComponentType.ReadOnly<AttackSkillState>(),
+            ComponentType.Exclude<Prefab>());
+        var entities = query.ToEntityArray(Allocator.Temp);
+        var slots = query.ToComponentDataArray<SkillSlotComponent>(Allocator.Temp);
+
+        for (var slotEntityIndex = 0; slotEntityIndex < entities.Length; slotEntityIndex++)
+        {
+            var slot = slots[slotEntityIndex];
+
+            if (slot.Owner != playerEntity ||
+                slot.SlotIndex < 0)
+            {
+                continue;
+            }
+
+            var skillState = entityManager.GetComponentData<AttackSkillState>(entities[slotEntityIndex]);
+
+            AddSkillLevelToSummary(skillState.Level, ref summary);
+        }
+
+        slots.Dispose();
+        entities.Dispose();
+        query.Dispose();
+    }
+
+    private static void ReadBuffSkillLevelSummary(
+        EntityManager entityManager,
+        Entity playerEntity,
+        ref SkillLevelSummary summary)
+    {
+        var query = entityManager.CreateEntityQuery(
+            ComponentType.ReadOnly<SkillSlotComponent>(),
+            ComponentType.ReadOnly<BuffSkillSlotTag>(),
+            ComponentType.ReadOnly<EquippedSkillTag>(),
+            ComponentType.ReadOnly<BuffSkillState>(),
+            ComponentType.Exclude<Prefab>());
+        var entities = query.ToEntityArray(Allocator.Temp);
+        var slots = query.ToComponentDataArray<SkillSlotComponent>(Allocator.Temp);
+
+        for (var slotEntityIndex = 0; slotEntityIndex < entities.Length; slotEntityIndex++)
+        {
+            var slot = slots[slotEntityIndex];
+
+            if (slot.Owner != playerEntity ||
+                slot.SlotIndex < 0)
+            {
+                continue;
+            }
+
+            var skillState = entityManager.GetComponentData<BuffSkillState>(entities[slotEntityIndex]);
+
+            AddSkillLevelToSummary(skillState.Level, ref summary);
+        }
+
+        slots.Dispose();
+        entities.Dispose();
+        query.Dispose();
+    }
+
+    private static void AddSkillLevelToSummary(int level, ref SkillLevelSummary summary)
+    {
+        var safeLevel = DebugOptionsOverlayMath.ApplySkillLevelDelta(level, 0);
+
+        summary.MinLevel = math.min(summary.MinLevel, safeLevel);
+        summary.MaxLevel = math.max(summary.MaxLevel, safeLevel);
+        summary.HasAnySkill = 1;
+
+        if (safeLevel > PlayerCombatConstants.MinSkillLevel)
+        {
+            summary.CanDecrease = 1;
+        }
+
+        if (safeLevel < PlayerCombatConstants.MaxSkillLevel)
+        {
+            summary.CanIncrease = 1;
+        }
+    }
+
+    private static int AdjustAttackSkillSlotLevels(
+        EntityManager entityManager,
+        Entity playerEntity,
+        int delta)
+    {
+        var query = entityManager.CreateEntityQuery(
+            ComponentType.ReadOnly<SkillSlotComponent>(),
+            ComponentType.ReadOnly<AttackSkillSlotTag>(),
+            ComponentType.ReadOnly<EquippedSkillTag>(),
+            ComponentType.ReadWrite<AttackSkillState>(),
+            ComponentType.Exclude<Prefab>());
+        var entities = query.ToEntityArray(Allocator.Temp);
+        var slots = query.ToComponentDataArray<SkillSlotComponent>(Allocator.Temp);
+        var changedCount = 0;
+
+        for (var slotEntityIndex = 0; slotEntityIndex < entities.Length; slotEntityIndex++)
+        {
+            var slot = slots[slotEntityIndex];
+
+            if (slot.Owner != playerEntity ||
+                slot.SlotIndex < 0)
+            {
+                continue;
+            }
+
+            var entity = entities[slotEntityIndex];
+            var skillState = entityManager.GetComponentData<AttackSkillState>(entity);
+            var nextLevel = DebugOptionsOverlayMath.ApplySkillLevelDelta(skillState.Level, delta);
+
+            if (nextLevel == skillState.Level)
+            {
+                continue;
+            }
+
+            skillState.Level = nextLevel;
+            entityManager.SetComponentData(entity, skillState);
+            changedCount++;
+        }
+
+        slots.Dispose();
+        entities.Dispose();
+        query.Dispose();
+        return changedCount;
+    }
+
+    private static int AdjustBuffSkillSlotLevels(
+        EntityManager entityManager,
+        Entity playerEntity,
+        int delta)
+    {
+        var query = entityManager.CreateEntityQuery(
+            ComponentType.ReadOnly<SkillSlotComponent>(),
+            ComponentType.ReadOnly<BuffSkillSlotTag>(),
+            ComponentType.ReadOnly<EquippedSkillTag>(),
+            ComponentType.ReadWrite<BuffSkillState>(),
+            ComponentType.Exclude<Prefab>());
+        var entities = query.ToEntityArray(Allocator.Temp);
+        var slots = query.ToComponentDataArray<SkillSlotComponent>(Allocator.Temp);
+        var changedCount = 0;
+
+        for (var slotEntityIndex = 0; slotEntityIndex < entities.Length; slotEntityIndex++)
+        {
+            var slot = slots[slotEntityIndex];
+
+            if (slot.Owner != playerEntity ||
+                slot.SlotIndex < 0)
+            {
+                continue;
+            }
+
+            var entity = entities[slotEntityIndex];
+            var skillState = entityManager.GetComponentData<BuffSkillState>(entity);
+            var nextLevel = DebugOptionsOverlayMath.ApplySkillLevelDelta(skillState.Level, delta);
+
+            if (nextLevel == skillState.Level)
+            {
+                continue;
+            }
+
+            skillState.Level = nextLevel;
+            entityManager.SetComponentData(entity, skillState);
+            changedCount++;
+        }
+
+        slots.Dispose();
+        entities.Dispose();
+        query.Dispose();
+        return changedCount;
     }
 
     private static void ReadAttackSkillSlots(
@@ -859,6 +1171,25 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         return new Rect(windowRect.x + 18f, windowRect.y + rowY, windowRect.width - 36f, 24f);
     }
 
+    private Rect GetSkillLevelMinusButtonRect()
+    {
+        return GetSkillLevelButtonRect(SkillLevelMinusButtonX);
+    }
+
+    private Rect GetSkillLevelPlusButtonRect()
+    {
+        return GetSkillLevelButtonRect(SkillLevelPlusButtonX);
+    }
+
+    private Rect GetSkillLevelButtonRect(float buttonX)
+    {
+        return new Rect(
+            windowRect.x + buttonX,
+            windowRect.y + SkillLevelControlY + 1f,
+            SkillLevelButtonSize,
+            SkillLevelButtonSize);
+    }
+
     private static Vector2 ToTopLeftMousePosition(Vector2 bottomLeftMousePosition)
     {
         return new Vector2(bottomLeftMousePosition.x, Screen.height - bottomLeftMousePosition.y);
@@ -884,6 +1215,17 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         labelText.text = label;
 
         return checkbox;
+    }
+
+    private static Image CreateSmallButton(RectTransform parent, string name, string label)
+    {
+        var buttonImage = CreateImage(name, parent, ButtonColor);
+        var buttonText = CreateText($"{name}-label", buttonImage.transform, 16, FontStyle.Bold);
+
+        buttonText.alignment = TextAnchor.MiddleCenter;
+        buttonText.text = label;
+        SetTopLeftRect(buttonText.rectTransform, 0f, 0f, SkillLevelButtonSize, SkillLevelButtonSize);
+        return buttonImage;
     }
 
     private static RectTransform CreateRect(string name, Transform parent)
@@ -1832,6 +2174,37 @@ public static class DebugOptionsOverlayMath
         }
 
         return FormatSkillSlotIconId(config.Id);
+    }
+
+    /// <summary>
+    /// Debug 操作用の skill level 増減を通常仕様の範囲へ制限する。
+    /// </summary>
+    public static int ApplySkillLevelDelta(int currentLevel, int delta)
+    {
+        return Mathf.Clamp(
+            currentLevel + delta,
+            PlayerCombatConstants.MinSkillLevel,
+            PlayerCombatConstants.MaxSkillLevel);
+    }
+
+    /// <summary>
+    /// Debug 表示用に equipped skill 全体の level 範囲を表示する。
+    /// </summary>
+    public static string FormatSkillLevelSummary(int minLevel, int maxLevel)
+    {
+        var safeMinLevel = ApplySkillLevelDelta(minLevel, 0);
+        var safeMaxLevel = ApplySkillLevelDelta(maxLevel, 0);
+
+        if (safeMinLevel == safeMaxLevel)
+        {
+            return string.Format(CultureInfo.InvariantCulture, "スキルLv {0}", safeMinLevel);
+        }
+
+        return string.Format(
+            CultureInfo.InvariantCulture,
+            "スキルLv {0}-{1}",
+            Mathf.Min(safeMinLevel, safeMaxLevel),
+            Mathf.Max(safeMinLevel, safeMaxLevel));
     }
 
     /// <summary>

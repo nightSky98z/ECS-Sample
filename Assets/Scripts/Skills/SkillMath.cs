@@ -45,7 +45,10 @@ public static class SkillMath
 
     public static float CalculateLevelRate(int level)
     {
-        var safeLevel = math.max(1, level);
+        var safeLevel = math.clamp(
+            level,
+            PlayerCombatConstants.MinSkillLevel,
+            PlayerCombatConstants.MaxSkillLevel);
 
         return 1f + (safeLevel - 1) * PlayerCombatConstants.DamageRatePerLevel;
     }
@@ -94,6 +97,61 @@ public static class SkillMath
     public static int CalculateDamageToHp(float damage)
     {
         return math.max(0, (int)math.ceil(damage));
+    }
+
+    public static int CalculateAttackCircleCount(
+        int level,
+        int baseTargetCount,
+        float targetCountLevelWeight,
+        int maxTargetCount,
+        SkillCountRoundMode roundMode)
+    {
+        var safeLevel = math.clamp(
+            level,
+            PlayerCombatConstants.MinSkillLevel,
+            PlayerCombatConstants.MaxSkillLevel);
+        var safeBaseCount = math.max(1, baseTargetCount);
+        var safeWeight = math.max(0f, targetCountLevelWeight);
+        var safeMaxCount = math.clamp(
+            math.max(safeBaseCount, maxTargetCount),
+            1,
+            PlayerCombatConstants.MaxAttackCircleCount);
+        var rawAdditionalCount = (safeLevel - 1) * safeWeight;
+        var additionalCount = roundMode switch
+        {
+            SkillCountRoundMode.Round => (int)math.floor(rawAdditionalCount + 0.5f),
+            SkillCountRoundMode.Ceil => (int)math.ceil(rawAdditionalCount),
+            _ => (int)math.floor(rawAdditionalCount)
+        };
+
+        return math.clamp(safeBaseCount + additionalCount, 1, safeMaxCount);
+    }
+
+    public static bool IsDelayReached(float elapsedTime, float delay)
+    {
+        return math.max(0f, elapsedTime) >= math.max(0f, delay);
+    }
+
+    public static bool IsPresentationComplete(
+        AttackSkillState state,
+        AttackSkillTimingConfig timing)
+    {
+        var sfxComplete = timing.HasSfx == 0 || state.SfxPlayed != 0;
+        var vfxComplete = timing.HasVfx == 0 || state.VfxSpawned != 0;
+
+        return sfxComplete && vfxComplete;
+    }
+
+    public static float CalculateVfxScale(
+        float attackRange,
+        AttackSkillTimingConfig timing)
+    {
+        var safePrefabRadius = math.max(0.0001f, timing.VfxPrefabRadius);
+        var targetRadius = timing.VfxDisplayRadius > 0f
+            ? timing.VfxDisplayRadius
+            : math.max(0f, attackRange);
+
+        return targetRadius / safePrefabRadius;
     }
 
     public static int CalculateDirectionBucketIndex(float2 direction, int bucketCount)

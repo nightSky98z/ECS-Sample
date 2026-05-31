@@ -64,10 +64,10 @@ public class PlayerEntity : MonoBehaviour
     [SerializeField]
     private float FallRescueDepth = 3f;
 
-    [Header("Default Attack Skill")]
+    [Header("初期攻撃スキル")]
     [Tooltip("SkillEntity 定義プレハブ。スロットにはこの定義から作った実行データだけをコピーする。")]
     [SerializeField]
-    private AttackSkillAuthoring DefaultAttackSkillEntity = null;
+    private MonoBehaviour DefaultAttackSkillEntity = null;
 
     [Tooltip("DefaultAttackSkillEntity が未指定の場合に使う攻撃スキル ID。")]
     [SerializeField]
@@ -89,6 +89,22 @@ public class PlayerEntity : MonoBehaviour
     [SerializeField]
     private float DefaultAttackSkillBaseAttackRange = 4f;
 
+    [Tooltip("DefaultAttackSkillEntity が未指定の場合に使う Lv1 の攻撃円数。")]
+    [SerializeField]
+    private int DefaultAttackSkillBaseTargetCount = 1;
+
+    [Tooltip("DefaultAttackSkillEntity が未指定の場合に使う、レベル上昇ごとの攻撃円数増加重み。")]
+    [SerializeField]
+    private float DefaultAttackSkillTargetCountLevelWeight = 0f;
+
+    [Tooltip("DefaultAttackSkillEntity が未指定の場合に使う攻撃円数上限。")]
+    [SerializeField]
+    private int DefaultAttackSkillMaxTargetCount = PlayerCombatConstants.MaxAttackCircleCount;
+
+    [Tooltip("DefaultAttackSkillEntity が未指定の場合に使う攻撃円数の丸め方。")]
+    [SerializeField]
+    private SkillCountRoundMode DefaultAttackSkillTargetCountRoundMode = SkillCountRoundMode.Floor;
+
     [Tooltip("DefaultAttackSkillEntity が未指定の場合に使う初期スキルレベル。")]
     [SerializeField]
     private int DefaultAttackSkillLevel = 1;
@@ -103,7 +119,19 @@ public class PlayerEntity : MonoBehaviour
         DefaultAttackSkillCooltime = math.max(0f, DefaultAttackSkillCooltime);
         DefaultAttackSkillBaseTargetRange = math.max(0f, DefaultAttackSkillBaseTargetRange);
         DefaultAttackSkillBaseAttackRange = math.max(0f, DefaultAttackSkillBaseAttackRange);
-        DefaultAttackSkillLevel = math.max(1, DefaultAttackSkillLevel);
+        DefaultAttackSkillBaseTargetCount = math.clamp(
+            DefaultAttackSkillBaseTargetCount,
+            1,
+            PlayerCombatConstants.MaxAttackCircleCount);
+        DefaultAttackSkillTargetCountLevelWeight = math.max(0f, DefaultAttackSkillTargetCountLevelWeight);
+        DefaultAttackSkillMaxTargetCount = math.clamp(
+            math.max(DefaultAttackSkillBaseTargetCount, DefaultAttackSkillMaxTargetCount),
+            1,
+            PlayerCombatConstants.MaxAttackCircleCount);
+        DefaultAttackSkillLevel = math.clamp(
+            DefaultAttackSkillLevel,
+            PlayerCombatConstants.MinSkillLevel,
+            PlayerCombatConstants.MaxSkillLevel);
         MaxHp = math.max(1, MaxHp);
         MaxHpPerLevel = math.max(0, MaxHpPerLevel);
         SkillDamageRatePerLevel = math.max(0f, SkillDamageRatePerLevel);
@@ -220,7 +248,15 @@ public class PlayerEntity : MonoBehaviour
                 var defaultSkill = authoring.CreateDefaultAttackSkill();
 
                 AddComponent(slot, defaultSkill.Config);
+                AddComponent(slot, defaultSkill.Timing);
+                AddComponent(slot, defaultSkill.CastTarget);
                 AddComponent(slot, defaultSkill.State);
+
+                if (authoring.TryGetDefaultAttackSkillAuthoring(out var skillAuthoring) &&
+                    skillAuthoring.TryCreatePresentation(out var presentation))
+                {
+                    AddComponent(slot, presentation);
+                }
             }
 
             for (var slotIndex = 0; slotIndex < PlayerCombatConstants.MaxBuffSkillCount; slotIndex++)
@@ -244,10 +280,13 @@ public class PlayerEntity : MonoBehaviour
     {
         if (DefaultAttackSkillEntity != null)
         {
-            return DefaultAttackSkillEntity.CreateAttackSkill();
+            if (TryGetDefaultAttackSkillAuthoring(out var skillAuthoring))
+            {
+                return skillAuthoring.CreateAttackSkill();
+            }
         }
 
-        return SkillDefaults.CreateDefaultAttackSkill(
+        var fallbackSkill = SkillDefaults.CreateDefaultAttackSkill(
             DefaultAttackSkillId,
             DefaultAttackSkillBaseDamage,
             DefaultAttackSkillCooltime,
@@ -255,5 +294,17 @@ public class PlayerEntity : MonoBehaviour
             DefaultAttackSkillBaseAttackRange,
             DefaultAttackSkillLevel,
             DefaultAttackSkillLogicId);
+
+        fallbackSkill.Config.BaseTargetCount = DefaultAttackSkillBaseTargetCount;
+        fallbackSkill.Config.TargetCountLevelWeight = DefaultAttackSkillTargetCountLevelWeight;
+        fallbackSkill.Config.MaxTargetCount = DefaultAttackSkillMaxTargetCount;
+        fallbackSkill.Config.TargetCountRoundMode = DefaultAttackSkillTargetCountRoundMode;
+        return fallbackSkill;
+    }
+
+    private bool TryGetDefaultAttackSkillAuthoring(out IAttackSkillDefinitionAuthoring skillAuthoring)
+    {
+        skillAuthoring = DefaultAttackSkillEntity as IAttackSkillDefinitionAuthoring;
+        return skillAuthoring != null;
     }
 }

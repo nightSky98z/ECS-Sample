@@ -204,6 +204,7 @@ public sealed class PCGStaticMeshAuthoringEditor : Editor
 
         EditorGUILayout.PropertyField(drawPlacementPreviewProperty);
         EditorGUILayout.PropertyField(staticMeshEntriesProperty, true);
+        DrawLodStaticPrefabWarning();
         EditorGUILayout.PropertyField(instanceCountProperty);
         EditorGUILayout.PropertyField(randomSeedProperty);
         EditorGUILayout.PropertyField(areaSizeProperty);
@@ -214,6 +215,85 @@ public sealed class PCGStaticMeshAuthoringEditor : Editor
         ClampSerializedValues();
 
         serializedObject.ApplyModifiedProperties();
+    }
+
+    private void DrawLodStaticPrefabWarning()
+    {
+        var staticLodPrefabs = CollectStaticLodPrefabs();
+
+        if (staticLodPrefabs.Count == 0)
+        {
+            return;
+        }
+
+        EditorGUILayout.HelpBox(
+            "LODGroup 付き prefab が Unity Static になっています。PCG は実行時に Entity を生成するため、Static のままだと Entities Graphics の最適化で LOD が無効になります。",
+            MessageType.Warning);
+
+        if (GUILayout.Button("PCG LOD Prefab の Static を解除"))
+        {
+            for (var prefabIndex = 0; prefabIndex < staticLodPrefabs.Count; prefabIndex++)
+            {
+                ClearStaticFlagsInHierarchy(staticLodPrefabs[prefabIndex]);
+            }
+
+            AssetDatabase.SaveAssets();
+        }
+    }
+
+    private List<GameObject> CollectStaticLodPrefabs()
+    {
+        var prefabs = new List<GameObject>();
+
+        for (var entryIndex = 0; entryIndex < staticMeshEntriesProperty.arraySize; entryIndex++)
+        {
+            var entryProperty = staticMeshEntriesProperty.GetArrayElementAtIndex(entryIndex);
+            var prefabProperty = entryProperty.FindPropertyRelative("Prefab");
+            var prefab = prefabProperty.objectReferenceValue as GameObject;
+
+            if (prefab == null ||
+                prefab.GetComponentInChildren<LODGroup>(true) == null ||
+                !HasStaticFlagsInHierarchy(prefab))
+            {
+                continue;
+            }
+
+            if (!prefabs.Contains(prefab))
+            {
+                prefabs.Add(prefab);
+            }
+        }
+
+        return prefabs;
+    }
+
+    private static bool HasStaticFlagsInHierarchy(GameObject root)
+    {
+        var transforms = root.GetComponentsInChildren<Transform>(true);
+
+        for (var transformIndex = 0; transformIndex < transforms.Length; transformIndex++)
+        {
+            if (GameObjectUtility.GetStaticEditorFlags(transforms[transformIndex].gameObject) != 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static void ClearStaticFlagsInHierarchy(GameObject root)
+    {
+        var transforms = root.GetComponentsInChildren<Transform>(true);
+
+        for (var transformIndex = 0; transformIndex < transforms.Length; transformIndex++)
+        {
+            var gameObject = transforms[transformIndex].gameObject;
+
+            Undo.RecordObject(gameObject, "Clear PCG LOD Prefab Static Flags");
+            GameObjectUtility.SetStaticEditorFlags(gameObject, (StaticEditorFlags)0);
+            EditorUtility.SetDirty(gameObject);
+        }
     }
 
     private void MigrateLegacySerializedPrefabs()
