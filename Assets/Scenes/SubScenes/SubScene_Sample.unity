@@ -229,7 +229,7 @@ MonoBehaviour:
   RecycleDistanceFromPlayer: 305.01
   RecycleCheckIntervalSeconds: 0.2
   MaxRecycleChecksPerFrame: 100
-  RandomSeed: 1
+  RandomSeed: 2
   StageTunings: []
 --- !u!1001 &640512236
 PrefabInstance:

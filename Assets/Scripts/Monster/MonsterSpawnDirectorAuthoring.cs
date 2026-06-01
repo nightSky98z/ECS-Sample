@@ -1172,6 +1172,8 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
         var hitVfxLookup = SystemAPI.GetComponentLookup<MonsterHitVfxState>(false);
         var hitVfxConfigLookup = SystemAPI.GetComponentLookup<MonsterHitVfxConfig>(true);
         var groundSnapLookup = SystemAPI.GetComponentLookup<GroundSnap>(false);
+        var debuffRuntimeLookup = SystemAPI.GetComponentLookup<DebuffRuntimeState>(false);
+        var debuffAggregateLookup = SystemAPI.GetComponentLookup<DebuffAggregate>(false);
 
         foreach (var (transform, entity) in
                  SystemAPI.Query<RefRW<LocalTransform>>()
@@ -1223,7 +1225,9 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
                 ref velocityLookup,
                 ref hitVfxLookup,
                 ref hitVfxConfigLookup,
-                ref groundSnapLookup);
+                ref groundSnapLookup,
+                ref debuffRuntimeLookup,
+                ref debuffAggregateLookup);
 
             recycledMonsterCount++;
 
@@ -1264,6 +1268,8 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
         var hitVfxLookup = SystemAPI.GetComponentLookup<MonsterHitVfxState>(false);
         var hitVfxConfigLookup = SystemAPI.GetComponentLookup<MonsterHitVfxConfig>(true);
         var groundSnapLookup = SystemAPI.GetComponentLookup<GroundSnap>(false);
+        var debuffRuntimeLookup = SystemAPI.GetComponentLookup<DebuffRuntimeState>(false);
+        var debuffAggregateLookup = SystemAPI.GetComponentLookup<DebuffAggregate>(false);
 
         foreach (var (transform, entity) in
                  SystemAPI.Query<RefRW<LocalTransform>>()
@@ -1314,7 +1320,9 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
                 ref velocityLookup,
                 ref hitVfxLookup,
                 ref hitVfxConfigLookup,
-                ref groundSnapLookup);
+                ref groundSnapLookup,
+                ref debuffRuntimeLookup,
+                ref debuffAggregateLookup);
 
             if (checkedMonsterCount >= maxChecksPerFrame)
             {
@@ -1357,7 +1365,9 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
         ref ComponentLookup<Velocity> velocityLookup,
         ref ComponentLookup<MonsterHitVfxState> hitVfxLookup,
         ref ComponentLookup<MonsterHitVfxConfig> hitVfxConfigLookup,
-        ref ComponentLookup<GroundSnap> groundSnapLookup)
+        ref ComponentLookup<GroundSnap> groundSnapLookup,
+        ref ComponentLookup<DebuffRuntimeState> debuffRuntimeLookup,
+        ref ComponentLookup<DebuffAggregate> debuffAggregateLookup)
     {
         if (healthLookup.HasComponent(monsterEntity))
         {
@@ -1391,6 +1401,19 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
                 GroundY = groundY,
                 IsGrounded = 1
             };
+        }
+
+        if (debuffRuntimeLookup.HasComponent(monsterEntity))
+        {
+            debuffRuntimeLookup[monsterEntity] = new DebuffRuntimeState
+            {
+                ActiveDebuffs = default
+            };
+        }
+
+        if (debuffAggregateLookup.HasComponent(monsterEntity))
+        {
+            debuffAggregateLookup[monsterEntity] = DebuffMath.CreateNeutralAggregate();
         }
 
         if (hitVfxConfigLookup.HasComponent(monsterEntity))

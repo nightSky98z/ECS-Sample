@@ -36,17 +36,20 @@ public partial struct MonsterSimpleAiSystem : ISystem
             return;
         }
 
-        foreach (var (velocity, transform, speed) in
-                 SystemAPI.Query<RefRW<Velocity>, RefRO<LocalTransform>, RefRO<MoveSpeed>>()
+        foreach (var (velocity, transform, speed, debuffs) in
+                 SystemAPI.Query<RefRW<Velocity>, RefRO<LocalTransform>, RefRO<MoveSpeed>, RefRO<DebuffAggregate>>()
                      .WithAll<MonsterTag>()
                      .WithAll<MonsterSimpleAi>()
                      .WithNone<MonsterDestroyVfxState>())
         {
             var currentVelocity = velocity.ValueRO.Value;
+            var moveSpeedMultiplier = debuffs.ValueRO.IsMovementLocked != 0
+                ? 0f
+                : debuffs.ValueRO.MoveSpeedMultiplier;
             var chaseVelocity = MonsterSimpleAiMath.CalculateChaseVelocity(
                 transform.ValueRO.Position,
                 playerPosition,
-                speed.ValueRO.Value);
+                speed.ValueRO.Value * moveSpeedMultiplier);
 
             velocity.ValueRW.Value = new float3(chaseVelocity.x, currentVelocity.y, chaseVelocity.z);
         }

@@ -336,6 +336,19 @@ public partial struct MonsterDestroySystem : ISystem
             });
         }
 
+        if (state.EntityManager.HasComponent<DebuffRuntimeState>(entity))
+        {
+            entityCommandBuffer.SetComponent(entity, new DebuffRuntimeState
+            {
+                ActiveDebuffs = default
+            });
+        }
+
+        if (state.EntityManager.HasComponent<DebuffAggregate>(entity))
+        {
+            entityCommandBuffer.SetComponent(entity, DebuffMath.CreateNeutralAggregate());
+        }
+
         if (state.EntityManager.HasComponent<MonsterHitVfxConfig>(entity))
         {
             VFXMaterialUtility.AddOrSetBaseColorForLinkedRenderEntities(

@@ -2,6 +2,7 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 /// <summary>
 /// プレイヤーを見つけるためのタグ、データなし
@@ -109,9 +110,11 @@ public class PlayerEntity : MonoBehaviour
     [SerializeField]
     private int DefaultAttackSkillLevel = 1;
 
-    [Tooltip("DefaultAttackSkillEntity が未指定の場合に使う攻撃ロジック ID。")]
+    [Tooltip("DefaultAttackSkillEntity が未指定の場合に使う攻撃形状。0: 対象中心円形、1: 前方扇形、2: 直線貫通、3: 自分中心 AoE、4: 拡散爆発、5: 連鎖、6: 自分中心ランダム落下、7: 繰り返し攻撃。")]
     [SerializeField]
-    private int DefaultAttackSkillLogicId = 0;
+    [FormerlySerializedAs("DefaultAttackSkillLogicId")]
+    [InspectorName("デフォルト攻撃ロジック")]
+    private AttackSkillLogicKind DefaultAttackSkillLogic = AttackSkillLogicKind.TargetCenteredCircle;
 
     private void OnValidate()
     {
@@ -248,9 +251,20 @@ public class PlayerEntity : MonoBehaviour
                 var defaultSkill = authoring.CreateDefaultAttackSkill();
 
                 AddComponent(slot, defaultSkill.Config);
+                AddComponent(slot, defaultSkill.AdvancedConfig);
                 AddComponent(slot, defaultSkill.Timing);
                 AddComponent(slot, defaultSkill.CastTarget);
                 AddComponent(slot, defaultSkill.State);
+
+                if (defaultSkill.DebuffSpecs.Length > 0)
+                {
+                    var debuffBuffer = AddBuffer<SkillDebuffSpec>(slot);
+
+                    for (var debuffIndex = 0; debuffIndex < defaultSkill.DebuffSpecs.Length; debuffIndex++)
+                    {
+                        debuffBuffer.Add(defaultSkill.DebuffSpecs[debuffIndex]);
+                    }
+                }
 
                 if (authoring.TryGetDefaultAttackSkillAuthoring(out var skillAuthoring) &&
                     skillAuthoring.TryCreatePresentation(out var presentation))
@@ -293,7 +307,7 @@ public class PlayerEntity : MonoBehaviour
             DefaultAttackSkillBaseTargetRange,
             DefaultAttackSkillBaseAttackRange,
             DefaultAttackSkillLevel,
-            DefaultAttackSkillLogicId);
+            (int)DefaultAttackSkillLogic);
 
         fallbackSkill.Config.BaseTargetCount = DefaultAttackSkillBaseTargetCount;
         fallbackSkill.Config.TargetCountLevelWeight = DefaultAttackSkillTargetCountLevelWeight;

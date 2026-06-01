@@ -1051,8 +1051,8 @@ public partial struct MonsterPathFollowSystem : ISystem
 
     public void OnUpdate(ref SystemState state)
     {
-        foreach (var (velocity, transform, moveSpeed) in
-                 SystemAPI.Query<RefRW<Velocity>, RefRO<LocalTransform>, RefRO<MoveSpeed>>()
+        foreach (var (velocity, transform, moveSpeed, debuffs) in
+                 SystemAPI.Query<RefRW<Velocity>, RefRO<LocalTransform>, RefRO<MoveSpeed>, RefRO<DebuffAggregate>>()
                      .WithAll<MonsterTag>()
                      .WithNone<MonsterDestroyVfxState>())
         {
@@ -1064,10 +1064,14 @@ public partial struct MonsterPathFollowSystem : ISystem
                 continue;
             }
 
+            var moveSpeedMultiplier = debuffs.ValueRO.IsMovementLocked != 0
+                ? 0f
+                : debuffs.ValueRO.MoveSpeedMultiplier;
+
             velocity.ValueRW.Value = new float3(
-                direction.x * moveSpeed.ValueRO.Value,
+                direction.x * moveSpeed.ValueRO.Value * moveSpeedMultiplier,
                 currentVelocity.y,
-                direction.y * moveSpeed.ValueRO.Value);
+                direction.y * moveSpeed.ValueRO.Value * moveSpeedMultiplier);
         }
     }
 

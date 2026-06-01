@@ -132,6 +132,47 @@ public static class SkillMath
         return math.max(0f, elapsedTime) >= math.max(0f, delay);
     }
 
+    public static AttackSkillState AdvanceCastElapsedTime(
+        AttackSkillState state,
+        float deltaTime)
+    {
+        if (state.IsCasting == 0 ||
+            state.StartedThisFrame != 0)
+        {
+            return state;
+        }
+
+        state.CastElapsedTime += math.max(0f, deltaTime);
+        return state;
+    }
+
+    public static float CalculateDamageApplyDelay(
+        AttackSkillTimingConfig timing,
+        SkillCastTarget castTarget,
+        AttackSkillState state)
+    {
+        return math.max(0f, timing.DamageDelay) +
+               math.max(0, state.DamageApplyCount) * math.max(0f, castTarget.RepeatInterval);
+    }
+
+    public static bool ShouldApplySkillDamage(
+        AttackSkillState state,
+        AttackSkillTimingConfig timing,
+        SkillCastTarget castTarget)
+    {
+        if (state.IsCasting == 0)
+        {
+            return false;
+        }
+
+        var damageApplyTotalCount = math.max(1, castTarget.RepeatCount);
+
+        return state.DamageApplyCount < damageApplyTotalCount &&
+               IsDelayReached(
+                   state.CastElapsedTime,
+                   CalculateDamageApplyDelay(timing, castTarget, state));
+    }
+
     public static bool IsPresentationComplete(
         AttackSkillState state,
         AttackSkillTimingConfig timing)

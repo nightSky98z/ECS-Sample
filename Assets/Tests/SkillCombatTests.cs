@@ -258,12 +258,128 @@ public sealed class SkillCombatTests
             Damage = 10
         };
 
-        castTarget.Positions.Add(new float3(1f, 0f, 2f));
-        castTarget.Positions.Add(new float3(3f, 0f, 4f));
+        SkillCastTargetUtility.AddCircle(ref castTarget, new float3(1f, 0f, 2f), 4f, 10);
+        SkillCastTargetUtility.AddCircle(ref castTarget, new float3(3f, 0f, 4f), 2f, 5);
 
         Assert.AreEqual(2, castTarget.Positions.Length);
         Assert.AreEqual(new float3(1f, 0f, 2f), castTarget.Positions[0]);
         Assert.AreEqual(new float3(3f, 0f, 4f), castTarget.Positions[1]);
+        Assert.AreEqual(4f, SkillCastTargetUtility.GetAttackRange(castTarget, 0));
+        Assert.AreEqual(2f, SkillCastTargetUtility.GetAttackRange(castTarget, 1));
+        Assert.AreEqual(10, SkillCastTargetUtility.GetDamage(castTarget, 0));
+        Assert.AreEqual(5, SkillCastTargetUtility.GetDamage(castTarget, 1));
+    }
+
+    [Test]
+    public void DirectionalSkillShapesUseFacingAndWidth()
+    {
+        var origin = float3.zero;
+        var forward = new float2(0f, 1f);
+        var angleCos = math.cos(math.radians(45f));
+
+        Assert.IsTrue(SkillSystemUtility.IsPointInForwardSector(
+            new float3(0f, 0f, 5f),
+            origin,
+            forward,
+            length: 10f,
+            angleCos: angleCos));
+        Assert.IsFalse(SkillSystemUtility.IsPointInForwardSector(
+            new float3(5f, 0f, 0f),
+            origin,
+            forward,
+            length: 10f,
+            angleCos: angleCos));
+
+        Assert.IsTrue(SkillSystemUtility.IsPointInPiercingLine(
+            new float3(0.5f, 0f, 5f),
+            origin,
+            forward,
+            length: 10f,
+            width: 2f));
+        Assert.IsFalse(SkillSystemUtility.IsPointInPiercingLine(
+            new float3(2f, 0f, 5f),
+            origin,
+            forward,
+            length: 10f,
+            width: 2f));
+    }
+
+    [Test]
+    public void DebuffMathAppliesMoveSpeedAndDotEffects()
+    {
+        var activeDebuff = DebuffMath.CreateActiveDebuff(new SkillDebuffSpec
+        {
+            DebuffId = 10,
+            Kind = DebuffKind.MoveSpeedDown,
+            Chance = 1f,
+            Duration = 3f,
+            Value0 = 0.5f
+        });
+        var aggregate = DebuffMath.CreateNeutralAggregate();
+
+        aggregate = DebuffMath.ApplyToAggregate(aggregate, activeDebuff);
+
+        Assert.AreEqual(0.5f, aggregate.MoveSpeedMultiplier, 0.0001f);
+        Assert.AreEqual(1f, aggregate.AttackMultiplier, 0.0001f);
+
+        activeDebuff = DebuffMath.CreateActiveDebuff(new SkillDebuffSpec
+        {
+            DebuffId = 11,
+            Kind = DebuffKind.DamageOverTime,
+            Chance = 1f,
+            Duration = 4f,
+            Value0 = 3f,
+            TickInterval = 0.5f
+        });
+
+        Assert.AreEqual(3, DebuffMath.CalculateDotDamage(activeDebuff, 0.5f, out var nextTickTimer));
+        Assert.AreEqual(0f, nextTickTimer, 0.0001f);
+    }
+
+    [Test]
+    public void DebuffStrengthComparisonUsesDebuffKindRules()
+    {
+        var currentSlow = DebuffMath.CreateActiveDebuff(new SkillDebuffSpec
+        {
+            Kind = DebuffKind.MoveSpeedDown,
+            Chance = 1f,
+            Duration = 3f,
+            Value0 = 0.8f
+        });
+        var strongerSlow = DebuffMath.CreateActiveDebuff(new SkillDebuffSpec
+        {
+            Kind = DebuffKind.MoveSpeedDown,
+            Chance = 1f,
+            Duration = 3f,
+            Value0 = 0.5f
+        });
+        var weakerSlow = DebuffMath.CreateActiveDebuff(new SkillDebuffSpec
+        {
+            Kind = DebuffKind.MoveSpeedDown,
+            Chance = 1f,
+            Duration = 3f,
+            Value0 = 0.9f
+        });
+        var currentDot = DebuffMath.CreateActiveDebuff(new SkillDebuffSpec
+        {
+            Kind = DebuffKind.DamageOverTime,
+            Chance = 1f,
+            Duration = 3f,
+            Value0 = 3f,
+            TickInterval = 1f
+        });
+        var strongerDot = DebuffMath.CreateActiveDebuff(new SkillDebuffSpec
+        {
+            Kind = DebuffKind.DamageOverTime,
+            Chance = 1f,
+            Duration = 3f,
+            Value0 = 2f,
+            TickInterval = 0.5f
+        });
+
+        Assert.IsTrue(DebuffMath.IsReplacementStronger(currentSlow, strongerSlow));
+        Assert.IsFalse(DebuffMath.IsReplacementStronger(currentSlow, weakerSlow));
+        Assert.IsTrue(DebuffMath.IsReplacementStronger(currentDot, strongerDot));
     }
 
     [Test]
@@ -339,6 +455,7 @@ public sealed class SkillCombatTests
         StringAssert.Contains("UnityEngine.Object.Instantiate", source);
         StringAssert.Contains("UnityEngine.Object.Destroy", source);
         StringAssert.Contains("CalculateVfxScale", source);
+        StringAssert.Contains("GetAttackRange", source);
         StringAssert.Contains("localScale", source);
         StringAssert.Contains("AttackSkillTimingConfig", source);
         StringAssert.Contains("SkillCastTarget", source);
@@ -347,21 +464,84 @@ public sealed class SkillCombatTests
     }
 
     [Test]
+    public void SkillTimingHelpersGateDamageByElapsedTimeAndRepeatCount()
+    {
+        var timing = new AttackSkillTimingConfig
+        {
+            DamageDelay = 0.2f
+        };
+        var castTarget = new SkillCastTarget
+        {
+            RepeatCount = 2,
+            RepeatInterval = 0.5f
+        };
+        var state = new AttackSkillState
+        {
+            IsCasting = 1,
+            CastElapsedTime = 0.19f,
+            DamageApplyCount = 0
+        };
+
+        Assert.IsFalse(SkillMath.ShouldApplySkillDamage(state, timing, castTarget));
+
+        state = SkillMath.AdvanceCastElapsedTime(state, 0.02f);
+
+        Assert.AreEqual(0.21f, state.CastElapsedTime, 0.0001f);
+        Assert.AreEqual(0.2f, SkillMath.CalculateDamageApplyDelay(timing, castTarget, state), 0.0001f);
+        Assert.IsTrue(SkillMath.ShouldApplySkillDamage(state, timing, castTarget));
+
+        state.DamageApplyCount = 1;
+
+        Assert.AreEqual(0.7f, SkillMath.CalculateDamageApplyDelay(timing, castTarget, state), 0.0001f);
+        Assert.IsFalse(SkillMath.ShouldApplySkillDamage(state, timing, castTarget));
+
+        state.CastElapsedTime = 0.7f;
+
+        Assert.IsTrue(SkillMath.ShouldApplySkillDamage(state, timing, castTarget));
+    }
+
+    [Test]
+    public void SkillSystemsUseSharedTimingUpdateAndPresentationOrder()
+    {
+        var skillSource = File.ReadAllText("Assets/Scripts/Skills/SkillSystems.cs");
+        var presentationSource = File.ReadAllText("Assets/Scripts/Skills/SkillPresentationSystem.cs");
+        var authoringSource = File.ReadAllText("Assets/Scripts/Skills/AttackSkillAuthoring.cs");
+        var instantAuthoringSource = File.ReadAllText("Assets/Scripts/Skills/InstantImpactSkillAuthoring.cs");
+
+        StringAssert.Contains("SkillCastElapsedTimeSystem", skillSource);
+        StringAssert.Contains("SkillCastCompletionSystem", skillSource);
+        StringAssert.Contains("AttackSkillTimingConfig", skillSource);
+        StringAssert.Contains("SkillMath.AdvanceCastElapsedTime", skillSource);
+        StringAssert.Contains("SkillMath.ShouldApplySkillDamage", skillSource);
+        Assert.IsFalse(skillSource.Contains("skillStateValue.CastElapsedTime += deltaTime"));
+        StringAssert.Contains("SkillMath.IsDelayReached(skillState.ValueRO.CastElapsedTime, timing.SfxDelay)", presentationSource);
+        StringAssert.Contains("SkillMath.IsDelayReached(skillState.ValueRO.CastElapsedTime, timing.VfxDelay)", presentationSource);
+        StringAssert.Contains("UpdateAfter(typeof(SkillLogicSystem))", presentationSource);
+        StringAssert.Contains("UpdateBefore(typeof(SkillCastCompletionSystem))", presentationSource);
+        StringAssert.Contains("タイミング（全攻撃ロジック共通）", authoringSource);
+        StringAssert.Contains("全攻撃ロジック共通", instantAuthoringSource);
+        StringAssert.Contains("InspectorName(\"ダメージ発生遅延\")", authoringSource);
+        StringAssert.Contains("InspectorName(\"VFX 表示半径\")", instantAuthoringSource);
+    }
+
+    [Test]
     public void DefaultAttackSkillEntityPrefabIsEditableAndAssignedToPlayer()
     {
-        var prefabPath = "Assets/Prefab/SkillEntity_DefaultCircleAttack.prefab";
-        var skillPrefab = File.ReadAllText(prefabPath);
+        var firePrefab = File.ReadAllText("Assets/Prefab/SkillEntity_FireCircleAttack.prefab");
+        var waterPrefab = File.ReadAllText("Assets/Prefab/SkillEntity_WaterCircleAttack.prefab");
         var playerPrefab = File.ReadAllText("Assets/Prefab/Player.prefab");
 
-        StringAssert.Contains("SkillEntity_瞬時インパクトSkill", skillPrefab);
-        StringAssert.Contains("InstantImpactSkillAuthoring", skillPrefab);
-        StringAssert.Contains("BaseTargetCount", skillPrefab);
-        StringAssert.Contains("TargetCountLevelWeight", skillPrefab);
-        StringAssert.Contains("MaxTargetCount", skillPrefab);
-        StringAssert.Contains("TargetCountRoundMode", skillPrefab);
-        StringAssert.Contains("VfxPrefabRadius", skillPrefab);
-        StringAssert.Contains("VfxDisplayRadius", skillPrefab);
-        StringAssert.Contains("BaseDamage", skillPrefab);
+        StringAssert.Contains("SkillEntity_FireCircleAttack", firePrefab);
+        StringAssert.Contains("SkillEntity_WaterCircleAttack", waterPrefab);
+        StringAssert.Contains("InstantImpactSkillAuthoring", firePrefab);
+        StringAssert.Contains("InstantImpactSkillAuthoring", waterPrefab);
+        StringAssert.Contains("BaseTargetCount", firePrefab);
+        StringAssert.Contains("TargetCountLevelWeight", firePrefab);
+        StringAssert.Contains("MaxTargetCount", firePrefab);
+        StringAssert.Contains("TargetCountRoundMode", firePrefab);
+        StringAssert.Contains("VfxPrefabRadius", firePrefab);
+        StringAssert.Contains("VfxDisplayRadius", firePrefab);
+        StringAssert.Contains("BaseDamage", firePrefab);
         StringAssert.Contains("DefaultAttackSkillEntity", playerPrefab);
         StringAssert.Contains("e36a6cb0231c4d948b5e88aa9102c316", playerPrefab);
     }
@@ -480,5 +660,32 @@ public sealed class SkillCombatTests
         monsterHealths.Dispose();
         monsterTransforms.Dispose();
         monsterEntities.Dispose();
+    }
+
+    [Test]
+    public void SkillLogicIdsExposeDebuffAndAdvancedPatterns()
+    {
+        var skillSource = File.ReadAllText("Assets/Scripts/Skills/SkillSystems.cs");
+        var authoringSource = File.ReadAllText("Assets/Scripts/Skills/InstantImpactSkillAuthoring.cs");
+        var componentSource = File.ReadAllText("Assets/Scripts/Skills/SkillComponents.cs");
+
+        StringAssert.Contains("case 1:", skillSource);
+        StringAssert.Contains("case 2:", skillSource);
+        StringAssert.Contains("case 3:", skillSource);
+        StringAssert.Contains("case 4:", skillSource);
+        StringAssert.Contains("case 5:", skillSource);
+        StringAssert.Contains("case 6:", skillSource);
+        StringAssert.Contains("case 7:", skillSource);
+        StringAssert.Contains("SkillDebuffSpec", skillSource);
+        StringAssert.Contains("AttackSkillAdvancedConfig", skillSource);
+        StringAssert.Contains("private AttackSkillLogicKind LogicKind", authoringSource);
+        StringAssert.Contains("AttackSkillLogicKind", componentSource);
+        StringAssert.Contains("ForwardSector", componentSource);
+        StringAssert.Contains("PiercingLine", componentSource);
+        StringAssert.Contains("SelfCenteredArea", componentSource);
+        StringAssert.Contains("InspectorName(\"4: 対象周囲に拡散爆発\")", componentSource);
+        StringAssert.Contains("OnHitDebuffs", authoringSource);
+        StringAssert.Contains("DebuffKind.MoveSpeedDown", componentSource);
+        StringAssert.Contains("DebuffKind.DamageOverTime", componentSource);
     }
 }

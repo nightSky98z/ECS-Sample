@@ -1,4 +1,5 @@
 using Unity.Entities;
+using Unity.Collections;
 using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Serialization;
@@ -58,38 +59,102 @@ public sealed class AttackSkillAuthoring : MonoBehaviour, IAttackSkillDefinition
     [SerializeField]
     private int Level = 1;
 
-    [Tooltip("SkillLogicSystem が実行する攻撃ロジック ID。")]
+    [Tooltip("SkillLogicSystem が実行する攻撃形状。0: 対象中心円形、1: 前方扇形、2: 直線貫通、3: 自分中心 AoE、4: 拡散爆発、5: 連鎖、6: 自分中心ランダム落下、7: 繰り返し攻撃。")]
     [SerializeField]
-    private int LogicId = 0;
+    [FormerlySerializedAs("LogicId")]
+    [InspectorName("攻撃ロジック")]
+    private AttackSkillLogicKind LogicKind = AttackSkillLogicKind.TargetCenteredCircle;
 
-    [Header("タイミング")]
-    [Tooltip("発動してからダメージ判定が出るまでの秒数。")]
+    [Header("形状設定")]
+    [Tooltip("LogicId 1 の扇形角度。90 なら前方 45 度ずつに攻撃する。")]
     [SerializeField]
+    private float ForwardSectorAngleDegrees = 90f;
+
+    [Tooltip("LogicId 2 の直線攻撃の幅。0 の場合は攻撃半径を幅として使う。")]
+    [SerializeField]
+    private float LineWidth = 0f;
+
+    [Header("追加ロジック")]
+    [Tooltip("LogicId 4/5 で使う 2 段階目の基礎ターゲット数。")]
+    [SerializeField]
+    private int SecondaryBaseCount = 1;
+
+    [Tooltip("LogicId 4/5 で使う 2 段階目ターゲット数のレベル重み。")]
+    [SerializeField]
+    private float SecondaryCountLevelWeight = 0f;
+
+    [Tooltip("LogicId 4/5 で使う 2 段階目ターゲット数の上限。")]
+    [SerializeField]
+    private int SecondaryMaxCount = PlayerCombatConstants.MaxAttackCircleCount;
+
+    [Tooltip("LogicId 4/5 で使う 2 段階目の探索半径。")]
+    [SerializeField]
+    private float SecondaryTargetRange = 8f;
+
+    [Tooltip("LogicId 4 の小さい爆発半径倍率。1 なら通常攻撃範囲と同じ。")]
+    [SerializeField]
+    private float SecondaryAttackRangeMultiplier = 0.5f;
+
+    [Tooltip("LogicId 6 で自分中心にランダム座標を選ぶ半径。0 ならターゲット探索半径を使う。")]
+    [SerializeField]
+    private float RandomGroundRadius = 0f;
+
+    [Tooltip("LogicId 7 で同じ場所に繰り返す基礎回数。")]
+    [SerializeField]
+    private int RepeatBaseCount = 1;
+
+    [Tooltip("LogicId 7 で繰り返し回数を増やすレベル重み。")]
+    [SerializeField]
+    private float RepeatCountLevelWeight = 0f;
+
+    [Tooltip("LogicId 7 で繰り返し回数の上限。")]
+    [SerializeField]
+    private int RepeatMaxCount = PlayerCombatConstants.MaxAttackCircleCount;
+
+    [Tooltip("LogicId 7 で同じ場所に再攻撃する間隔秒。")]
+    [SerializeField]
+    private float RepeatInterval = 0.35f;
+
+    [Header("命中時デバフ")]
+    [Tooltip("攻撃が命中した敵に付与するデバフ。空ならデバフなし。")]
+    [SerializeField]
+    private SkillDebuffAuthoring[] OnHitDebuffs = null;
+
+    [Header("タイミング（全攻撃ロジック共通）")]
+    [Tooltip("全攻撃ロジック共通。発動してからダメージ判定が出るまでの秒数。")]
+    [SerializeField]
+    [InspectorName("ダメージ発生遅延")]
     private float DamageDelay = 0f;
 
-    [Tooltip("発動してから SFX を再生するまでの秒数。")]
+    [Tooltip("全攻撃ロジック共通。発動してから SFX を再生するまでの秒数。")]
     [SerializeField]
+    [InspectorName("SFX 再生遅延")]
     private float SfxDelay = 0f;
 
-    [Tooltip("SFX の音量。1 が基準音量。")]
+    [Tooltip("全攻撃ロジック共通。SFX の音量。1 が基準音量。")]
     [SerializeField]
+    [InspectorName("SFX 音量")]
     private float SfxVolume = 1f;
 
-    [Tooltip("発動してから VFX を生成するまでの秒数。")]
+    [Tooltip("全攻撃ロジック共通。発動してから VFX を生成するまでの秒数。")]
     [SerializeField]
+    [InspectorName("VFX 生成遅延")]
     private float VfxDelay = 0f;
 
-    [Tooltip("生成した VFX GameObject を残す秒数。0 なら即時破棄。")]
+    [Tooltip("全攻撃ロジック共通。生成した VFX GameObject を残す秒数。0 なら即時破棄。")]
     [SerializeField]
+    [InspectorName("VFX 表示時間")]
     private float VfxDuration = 1f;
 
-    [Tooltip("VFX プレハブをそのまま生成したとき、見た目で何 m 半径に見えるか。Prefab の元サイズ差をここで吸収する。")]
+    [Tooltip("全攻撃ロジック共通。VFX プレハブをそのまま生成したとき、見た目で何 m 半径に見えるか。Prefab の元サイズ差をここで吸収する。")]
     [SerializeField]
     [FormerlySerializedAs("VfxBaseRadius")]
+    [InspectorName("VFX プレハブ半径")]
     private float VfxPrefabRadius = 1f;
 
-    [Tooltip("VFX を表示したい半径。0 の場合は実際の攻撃半径に自動で合わせる。")]
+    [Tooltip("全攻撃ロジック共通。VFX を表示したい半径。0 の場合は実際の攻撃半径に自動で合わせる。")]
     [SerializeField]
+    [InspectorName("VFX 表示半径")]
     private float VfxDisplayRadius = 0f;
 
     [Header("演出")]
@@ -114,6 +179,25 @@ public sealed class AttackSkillAuthoring : MonoBehaviour, IAttackSkillDefinition
             1,
             PlayerCombatConstants.MaxAttackCircleCount);
         Level = math.clamp(Level, PlayerCombatConstants.MinSkillLevel, PlayerCombatConstants.MaxSkillLevel);
+        ForwardSectorAngleDegrees = math.clamp(ForwardSectorAngleDegrees, 1f, 360f);
+        LineWidth = math.max(0f, LineWidth);
+        SecondaryBaseCount = math.clamp(SecondaryBaseCount, 1, PlayerCombatConstants.MaxAttackCircleCount);
+        SecondaryCountLevelWeight = math.max(0f, SecondaryCountLevelWeight);
+        SecondaryMaxCount = math.clamp(
+            math.max(SecondaryBaseCount, SecondaryMaxCount),
+            1,
+            PlayerCombatConstants.MaxAttackCircleCount);
+        SecondaryTargetRange = math.max(0f, SecondaryTargetRange);
+        SecondaryAttackRangeMultiplier = math.max(0f, SecondaryAttackRangeMultiplier);
+        RandomGroundRadius = math.max(0f, RandomGroundRadius);
+        RepeatBaseCount = math.clamp(RepeatBaseCount, 1, PlayerCombatConstants.MaxAttackCircleCount);
+        RepeatCountLevelWeight = math.max(0f, RepeatCountLevelWeight);
+        RepeatMaxCount = math.clamp(
+            math.max(RepeatBaseCount, RepeatMaxCount),
+            1,
+            PlayerCombatConstants.MaxAttackCircleCount);
+        RepeatInterval = math.max(0f, RepeatInterval);
+        NormalizeDebuffAuthoringArray(OnHitDebuffs);
         DamageDelay = math.max(0f, DamageDelay);
         SfxDelay = math.max(0f, SfxDelay);
         SfxVolume = math.max(0f, SfxVolume);
@@ -132,7 +216,7 @@ public sealed class AttackSkillAuthoring : MonoBehaviour, IAttackSkillDefinition
             BaseTargetRange,
             BaseAttackRange,
             Level,
-            LogicId,
+            (int)LogicKind,
             DamageDelay,
             SfxDelay,
             SfxVolume,
@@ -142,6 +226,8 @@ public sealed class AttackSkillAuthoring : MonoBehaviour, IAttackSkillDefinition
             VfxDisplayRadius);
 
         ApplyTargetCountConfig(ref definition.Config);
+        definition.AdvancedConfig = CreateAdvancedConfig();
+        CopyDebuffSpecs(ref definition.DebuffSpecs);
         definition.Timing.HasSfx = SfxClip != null ? (byte)1 : (byte)0;
         definition.Timing.HasVfx = VfxPrefab != null ? (byte)1 : (byte)0;
         return definition;
@@ -172,6 +258,45 @@ public sealed class AttackSkillAuthoring : MonoBehaviour, IAttackSkillDefinition
         config.TargetCountRoundMode = TargetCountRoundMode;
     }
 
+    private AttackSkillAdvancedConfig CreateAdvancedConfig()
+    {
+        return AttackSkillAuthoringUtility.CreateAdvancedConfig(
+            ForwardSectorAngleDegrees,
+            LineWidth,
+            SecondaryBaseCount,
+            SecondaryCountLevelWeight,
+            SecondaryMaxCount,
+            SecondaryTargetRange,
+            SecondaryAttackRangeMultiplier,
+            RandomGroundRadius,
+            RepeatBaseCount,
+            RepeatCountLevelWeight,
+            RepeatMaxCount,
+            RepeatInterval);
+    }
+
+    private void CopyDebuffSpecs(ref FixedList512Bytes<SkillDebuffSpec> debuffSpecs)
+    {
+        AttackSkillAuthoringUtility.CopyDebuffSpecs(OnHitDebuffs, ref debuffSpecs);
+    }
+
+    private static void NormalizeDebuffAuthoringArray(SkillDebuffAuthoring[] debuffs)
+    {
+        if (debuffs == null)
+        {
+            return;
+        }
+
+        for (var debuffIndex = 0; debuffIndex < debuffs.Length; debuffIndex++)
+        {
+            debuffs[debuffIndex].Chance = math.saturate(debuffs[debuffIndex].Chance);
+            debuffs[debuffIndex].Duration = math.max(0f, debuffs[debuffIndex].Duration);
+            debuffs[debuffIndex].TickInterval = debuffs[debuffIndex].TickInterval > 0f
+                ? debuffs[debuffIndex].TickInterval
+                : DebuffConstants.DefaultDotTickInterval;
+        }
+    }
+
     private sealed class Baker : Baker<AttackSkillAuthoring>
     {
         public override void Bake(AttackSkillAuthoring authoring)
@@ -180,7 +305,18 @@ public sealed class AttackSkillAuthoring : MonoBehaviour, IAttackSkillDefinition
             var definition = authoring.CreateAttackSkill();
 
             AddComponent(entity, definition.Config);
+            AddComponent(entity, definition.AdvancedConfig);
             AddComponent(entity, definition.Timing);
+
+            if (definition.DebuffSpecs.Length > 0)
+            {
+                var debuffBuffer = AddBuffer<SkillDebuffSpec>(entity);
+
+                for (var debuffIndex = 0; debuffIndex < definition.DebuffSpecs.Length; debuffIndex++)
+                {
+                    debuffBuffer.Add(definition.DebuffSpecs[debuffIndex]);
+                }
+            }
 
             if (authoring.SfxClip != null)
             {
@@ -205,6 +341,89 @@ public sealed class AttackSkillAuthoring : MonoBehaviour, IAttackSkillDefinition
 /// </summary>
 public static class AttackSkillAuthoringUtility
 {
+    public static AttackSkillAdvancedConfig CreateAdvancedConfig(
+        float forwardSectorAngleDegrees,
+        float lineWidth,
+        int secondaryBaseCount,
+        float secondaryCountLevelWeight,
+        int secondaryMaxCount,
+        float secondaryTargetRange,
+        float secondaryAttackRangeMultiplier,
+        float randomGroundRadius,
+        int repeatBaseCount,
+        float repeatCountLevelWeight,
+        int repeatMaxCount,
+        float repeatInterval)
+    {
+        return new AttackSkillAdvancedConfig
+        {
+            ForwardSectorAngleDegrees = math.clamp(forwardSectorAngleDegrees, 1f, 360f),
+            LineWidth = math.max(0f, lineWidth),
+            SecondaryBaseCount = math.clamp(
+                secondaryBaseCount,
+                1,
+                PlayerCombatConstants.MaxAttackCircleCount),
+            SecondaryCountLevelWeight = math.max(0f, secondaryCountLevelWeight),
+            SecondaryMaxCount = math.clamp(
+                math.max(secondaryBaseCount, secondaryMaxCount),
+                1,
+                PlayerCombatConstants.MaxAttackCircleCount),
+            SecondaryTargetRange = math.max(0f, secondaryTargetRange),
+            SecondaryAttackRangeMultiplier = math.max(0f, secondaryAttackRangeMultiplier),
+            RandomGroundRadius = math.max(0f, randomGroundRadius),
+            RepeatBaseCount = math.clamp(
+                repeatBaseCount,
+                1,
+                PlayerCombatConstants.MaxAttackCircleCount),
+            RepeatCountLevelWeight = math.max(0f, repeatCountLevelWeight),
+            RepeatMaxCount = math.clamp(
+                math.max(repeatBaseCount, repeatMaxCount),
+                1,
+                PlayerCombatConstants.MaxAttackCircleCount),
+            RepeatInterval = math.max(0f, repeatInterval)
+        };
+    }
+
+    public static void CopyDebuffSpecs(
+        SkillDebuffAuthoring[] authoringDebuffs,
+        ref FixedList512Bytes<SkillDebuffSpec> debuffSpecs)
+    {
+        debuffSpecs = default;
+
+        if (authoringDebuffs == null)
+        {
+            return;
+        }
+
+        for (var debuffIndex = 0; debuffIndex < authoringDebuffs.Length; debuffIndex++)
+        {
+            if (debuffSpecs.Length >= DebuffConstants.MaxActiveDebuffCount)
+            {
+                return;
+            }
+
+            var authoringDebuff = authoringDebuffs[debuffIndex];
+            var spec = DebuffMath.NormalizeSpec(new SkillDebuffSpec
+            {
+                DebuffId = authoringDebuff.DebuffId,
+                Kind = authoringDebuff.Kind,
+                StackPolicy = authoringDebuff.StackPolicy,
+                Chance = authoringDebuff.Chance,
+                Duration = authoringDebuff.Duration,
+                Value0 = authoringDebuff.Value0,
+                Value1 = authoringDebuff.Value1,
+                TickInterval = authoringDebuff.TickInterval
+            });
+
+            if (spec.Duration <= 0f || spec.Chance <= 0f)
+            {
+                continue;
+            }
+
+            debuffSpecs.Add(spec);
+        }
+    }
+
     public static AttackSkillDefinition CreateAttackSkill(
         int id,
         float baseDamage,

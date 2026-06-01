@@ -117,6 +117,11 @@ public class MonsterEntity : MonoBehaviour
             {
                 Value = authoring.MoveSpeed
             });
+            AddComponent(entity, new DebuffRuntimeState
+            {
+                ActiveDebuffs = default
+            });
+            AddComponent(entity, DebuffMath.CreateNeutralAggregate());
             AddComponent(entity, HealthMath.CreateFullHealth(authoring.MaxHp));
             AddComponent(entity, new ExperienceReward
             {

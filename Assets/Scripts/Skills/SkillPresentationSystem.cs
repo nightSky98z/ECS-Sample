@@ -6,8 +6,8 @@ using UnityEngine;
 /// Attack skill の SFX / VFX をメインスレッドで再生する。
 /// </summary>
 [UpdateInGroup(typeof(SimulationSystemGroup))]
-[UpdateAfter(typeof(PlayerCombatSystem))]
-[UpdateBefore(typeof(SkillLogicSystem))]
+[UpdateAfter(typeof(SkillLogicSystem))]
+[UpdateBefore(typeof(SkillCastCompletionSystem))]
 public partial class SkillPresentationSystem : SystemBase
 {
     protected override void OnCreate()
@@ -89,11 +89,13 @@ public partial class SkillPresentationSystem : SystemBase
             return;
         }
 
-        var vfxScale = SkillMath.CalculateVfxScale(castTarget.AttackRange, timing);
         var vfxDuration = math.max(0f, timing.VfxDuration);
 
         for (var targetIndex = 0; targetIndex < castTarget.Positions.Length; targetIndex++)
         {
+            var vfxScale = SkillMath.CalculateVfxScale(
+                SkillCastTargetUtility.GetAttackRange(castTarget, targetIndex),
+                timing);
             var vfx = UnityEngine.Object.Instantiate(
                 vfxPrefab,
                 ToVector3(castTarget.Positions[targetIndex]),

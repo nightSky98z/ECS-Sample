@@ -1,3 +1,4 @@
+using System;
 using Unity.Entities;
 using Unity.Collections;
 using Unity.Mathematics;
@@ -43,6 +44,309 @@ public enum SkillCountRoundMode
 }
 
 /// <summary>
+/// Inspector で選ぶ attack skill の攻撃形状。
+/// </summary>
+public enum AttackSkillLogicKind
+{
+    [InspectorName("0: 対象中心の円形範囲攻撃")]
+    TargetCenteredCircle = 0,
+
+    [InspectorName("1: 前方扇形攻撃")]
+    ForwardSector = 1,
+
+    [InspectorName("2: 直線貫通攻撃")]
+    PiercingLine = 2,
+
+    [InspectorName("3: 自分中心 AoE")]
+    SelfCenteredArea = 3,
+
+    [InspectorName("4: 対象周囲に拡散爆発")]
+    SpreadAroundTarget = 4,
+
+    [InspectorName("5: 雷のように周囲へ連鎖")]
+    ChainToNearbyTargets = 5,
+
+    [InspectorName("6: 自分中心にランダム落下")]
+    RandomGroundAroundOwner = 6,
+
+    [InspectorName("7: 同じ場所で繰り返し攻撃")]
+    RepeatingTargetCircle = 7
+}
+
+/// <summary>
+/// 発動時に確定した damage 判定形状。
+/// </summary>
+public enum AttackSkillCastShape
+{
+    CircleList,
+    ForwardSector,
+    PiercingLine
+}
+
+/// <summary>
+/// Debuff system が処理する効果カテゴリ。
+/// </summary>
+public enum DebuffKind
+{
+    MoveSpeedDown,
+    DamageOverTime,
+    AttackDown,
+    DefenseDown,
+    EvasionDown,
+    Freeze,
+    Paralyze
+}
+
+/// <summary>
+/// 同じ DebuffId が既にある場合の更新規則。
+/// </summary>
+public enum DebuffStackPolicy
+{
+    RefreshDuration,
+    ReplaceIfStronger,
+    StackIndependent
+}
+
+/// <summary>
+/// SkillEntity が持つ命中時 debuff 定義。
+/// </summary>
+public struct SkillDebuffSpec : IBufferElementData
+{
+    public int DebuffId;
+    public DebuffKind Kind;
+    public DebuffStackPolicy StackPolicy;
+    public float Chance;
+    public float Duration;
+    public float Value0;
+    public float Value1;
+    public float TickInterval;
+}
+
+/// <summary>
+/// Inspector で編集する命中時 debuff 定義。
+/// </summary>
+[Serializable]
+public struct SkillDebuffAuthoring
+{
+    [Tooltip("デバフ ID。VFX/SFX/UI/個別ルールの識別に使う。")]
+    public int DebuffId;
+
+    [Tooltip("デバフの処理カテゴリ。")]
+    public DebuffKind Kind;
+
+    [Tooltip("同じ DebuffId が既にある場合の更新規則。")]
+    public DebuffStackPolicy StackPolicy;
+
+    [Tooltip("命中時にこのデバフが発生する確率。0 は発生なし、1 は必ず発生。")]
+    public float Chance;
+
+    [Tooltip("デバフの継続時間秒。0 以下なら適用しない。")]
+    public float Duration;
+
+    [Tooltip("効果値 0。速度低下なら移動速度倍率、DoT なら tick ダメージ。")]
+    public float Value0;
+
+    [Tooltip("効果値 1。将来の拡張用。")]
+    public float Value1;
+
+    [Tooltip("DoT の tick 間隔秒。0 以下なら 1 秒として扱う。")]
+    public float TickInterval;
+}
+
+/// <summary>
+/// Monster が保持する実行中 debuff。
+/// </summary>
+public struct ActiveDebuff
+{
+    public int DebuffId;
+    public DebuffKind Kind;
+    public DebuffStackPolicy StackPolicy;
+    public float RemainingTime;
+    public float Value0;
+    public float Value1;
+    public float TickInterval;
+    public float TickTimer;
+}
+
+/// <summary>
+/// Monster に固定で持たせる debuff runtime 状態。
+/// </summary>
+public struct DebuffRuntimeState : IComponentData
+{
+    public FixedList512Bytes<ActiveDebuff> ActiveDebuffs;
+}
+
+/// <summary>
+/// 各 system が読む集約済み debuff 値。
+/// </summary>
+public struct DebuffAggregate : IComponentData
+{
+    public float MoveSpeedMultiplier;
+    public float AttackMultiplier;
+    public float DefenseMultiplier;
+    public float EvasionMultiplier;
+    public byte IsMovementLocked;
+    public byte IsActionLocked;
+}
+
+/// <summary>
+/// Debuff 処理で共有する固定値。
+/// </summary>
+public static class DebuffConstants
+{
+    public const int MaxActiveDebuffCount = 12;
+    public const float DefaultDotTickInterval = 1f;
+}
+
+/// <summary>
+/// Debuff system から独立して検査できる計算。
+/// </summary>
+public static class DebuffMath
+{
+    public static SkillDebuffSpec NormalizeSpec(SkillDebuffSpec spec)
+    {
+        spec.Chance = math.saturate(spec.Chance);
+        spec.Duration = math.max(0f, spec.Duration);
+        spec.TickInterval = spec.TickInterval > 0f
+            ? spec.TickInterval
+            : DebuffConstants.DefaultDotTickInterval;
+
+        return spec;
+    }
+
+    public static ActiveDebuff CreateActiveDebuff(SkillDebuffSpec spec)
+    {
+        var normalizedSpec = NormalizeSpec(spec);
+
+        return new ActiveDebuff
+        {
+            DebuffId = normalizedSpec.DebuffId,
+            Kind = normalizedSpec.Kind,
+            StackPolicy = normalizedSpec.StackPolicy,
+            RemainingTime = normalizedSpec.Duration,
+            Value0 = normalizedSpec.Value0,
+            Value1 = normalizedSpec.Value1,
+            TickInterval = normalizedSpec.TickInterval,
+            TickTimer = 0f
+        };
+    }
+
+    public static DebuffAggregate CreateNeutralAggregate()
+    {
+        return new DebuffAggregate
+        {
+            MoveSpeedMultiplier = 1f,
+            AttackMultiplier = 1f,
+            DefenseMultiplier = 1f,
+            EvasionMultiplier = 1f,
+            IsMovementLocked = 0,
+            IsActionLocked = 0
+        };
+    }
+
+    public static DebuffAggregate ApplyToAggregate(DebuffAggregate aggregate, ActiveDebuff debuff)
+    {
+        switch (debuff.Kind)
+        {
+            case DebuffKind.MoveSpeedDown:
+                aggregate.MoveSpeedMultiplier *= math.max(0f, debuff.Value0);
+                break;
+            case DebuffKind.AttackDown:
+                aggregate.AttackMultiplier *= math.max(0f, debuff.Value0);
+                break;
+            case DebuffKind.DefenseDown:
+                aggregate.DefenseMultiplier *= math.max(0f, debuff.Value0);
+                break;
+            case DebuffKind.EvasionDown:
+                aggregate.EvasionMultiplier *= math.max(0f, debuff.Value0);
+                break;
+            case DebuffKind.Freeze:
+            case DebuffKind.Paralyze:
+                aggregate.MoveSpeedMultiplier = 0f;
+                aggregate.IsMovementLocked = 1;
+                aggregate.IsActionLocked = 1;
+                break;
+        }
+
+        aggregate.MoveSpeedMultiplier = math.max(0f, aggregate.MoveSpeedMultiplier);
+        aggregate.AttackMultiplier = math.max(0f, aggregate.AttackMultiplier);
+        aggregate.DefenseMultiplier = math.max(0f, aggregate.DefenseMultiplier);
+        aggregate.EvasionMultiplier = math.max(0f, aggregate.EvasionMultiplier);
+        return aggregate;
+    }
+
+    public static int CalculateDotDamage(ActiveDebuff debuff, float deltaTime, out float nextTickTimer)
+    {
+        var tickInterval = debuff.TickInterval > 0f
+            ? debuff.TickInterval
+            : DebuffConstants.DefaultDotTickInterval;
+        var tickTimer = debuff.TickTimer + math.max(0f, deltaTime);
+        var tickCount = (int)math.floor(tickTimer / tickInterval);
+
+        nextTickTimer = tickTimer - tickCount * tickInterval;
+
+        if (debuff.Kind != DebuffKind.DamageOverTime || tickCount <= 0)
+        {
+            return 0;
+        }
+
+        return tickCount * math.max(0, (int)math.ceil(debuff.Value0));
+    }
+
+    public static bool IsReplacementStronger(ActiveDebuff currentDebuff, ActiveDebuff replacementDebuff)
+    {
+        if (currentDebuff.Kind != replacementDebuff.Kind)
+        {
+            return math.abs(replacementDebuff.Value0) > math.abs(currentDebuff.Value0);
+        }
+
+        switch (replacementDebuff.Kind)
+        {
+            case DebuffKind.MoveSpeedDown:
+            case DebuffKind.AttackDown:
+            case DebuffKind.DefenseDown:
+            case DebuffKind.EvasionDown:
+                return math.max(0f, replacementDebuff.Value0) <
+                       math.max(0f, currentDebuff.Value0);
+            case DebuffKind.DamageOverTime:
+                return CalculateDotDamagePerSecond(replacementDebuff) >
+                       CalculateDotDamagePerSecond(currentDebuff);
+            case DebuffKind.Freeze:
+            case DebuffKind.Paralyze:
+                return replacementDebuff.RemainingTime > currentDebuff.RemainingTime;
+            default:
+                return math.abs(replacementDebuff.Value0) > math.abs(currentDebuff.Value0);
+        }
+    }
+
+    private static float CalculateDotDamagePerSecond(ActiveDebuff debuff)
+    {
+        var tickInterval = debuff.TickInterval > 0f
+            ? debuff.TickInterval
+            : DebuffConstants.DefaultDotTickInterval;
+
+        return math.max(0f, debuff.Value0) / tickInterval;
+    }
+
+    public static bool ShouldApply(float chance, ref Unity.Mathematics.Random random)
+    {
+        var normalizedChance = math.saturate(chance);
+
+        if (normalizedChance <= 0f)
+        {
+            return false;
+        }
+
+        if (normalizedChance >= 1f)
+        {
+            return true;
+        }
+
+        return random.NextFloat() <= normalizedChance;
+    }
+}
+
+/// <summary>
 /// Attack skill の定義値。SkillEntity prefab と slot の両方で共有する固定寄りデータ。
 /// </summary>
 public struct AttackSkillConfig : IComponentData
@@ -60,7 +364,26 @@ public struct AttackSkillConfig : IComponentData
 }
 
 /// <summary>
-/// Attack skill の発動タイミングと演出用数値。
+/// 2 段階攻撃、ランダム落下、繰り返し攻撃で使う追加定義値。
+/// </summary>
+public struct AttackSkillAdvancedConfig : IComponentData
+{
+    public float ForwardSectorAngleDegrees;
+    public float LineWidth;
+    public int SecondaryBaseCount;
+    public float SecondaryCountLevelWeight;
+    public int SecondaryMaxCount;
+    public float SecondaryTargetRange;
+    public float SecondaryAttackRangeMultiplier;
+    public float RandomGroundRadius;
+    public int RepeatBaseCount;
+    public float RepeatCountLevelWeight;
+    public int RepeatMaxCount;
+    public float RepeatInterval;
+}
+
+/// <summary>
+/// Attack skill の全ロジックで共通利用する発動タイミングと演出用数値。
 /// </summary>
 public struct AttackSkillTimingConfig : IComponentData
 {
@@ -91,6 +414,8 @@ public struct AttackSkillState : IComponentData
     public float Timer;
     public float CastElapsedTime;
     public int Level;
+    public int DamageApplyCount;
+    public int DamageApplyTotalCount;
 
     /// <summary>
     /// 0 = ready, 1 = cooltime running。
@@ -134,8 +459,18 @@ public struct AttackSkillState : IComponentData
 public struct SkillCastTarget : IComponentData
 {
     public FixedList512Bytes<float3> Positions;
+    public FixedList512Bytes<float> AttackRanges;
+    public FixedList512Bytes<int> Damages;
+    public AttackSkillCastShape Shape;
+    public float3 Origin;
+    public float2 Direction;
+    public float ShapeLength;
+    public float ShapeWidth;
+    public float ShapeAngleCos;
     public float AttackRange;
     public int Damage;
+    public int RepeatCount;
+    public float RepeatInterval;
 }
 
 /// <summary>
@@ -172,9 +507,11 @@ public struct BuffSkillState : IComponentData
 public struct AttackSkillDefinition
 {
     public AttackSkillConfig Config;
+    public AttackSkillAdvancedConfig AdvancedConfig;
     public AttackSkillTimingConfig Timing;
     public AttackSkillState State;
     public SkillCastTarget CastTarget;
+    public FixedList512Bytes<SkillDebuffSpec> DebuffSpecs;
 }
 
 /// <summary>
@@ -251,6 +588,7 @@ public static class SkillDefaults
                 TargetCountRoundMode = SkillCountRoundMode.Floor,
                 LogicId = logicId
             },
+            AdvancedConfig = SkillDefaults.CreateDefaultAdvancedConfig(),
             Timing = new AttackSkillTimingConfig
             {
                 DamageDelay = 0f,
@@ -268,6 +606,8 @@ public static class SkillDefaults
                 Timer = 0f,
                 CastElapsedTime = 0f,
                 Level = math.clamp(level, PlayerCombatConstants.MinSkillLevel, PlayerCombatConstants.MaxSkillLevel),
+                DamageApplyCount = 0,
+                DamageApplyTotalCount = 0,
                 IsCooltime = 0,
                 IsTriggered = 0,
                 IsCasting = 0,
@@ -279,9 +619,81 @@ public static class SkillDefaults
             CastTarget = new SkillCastTarget
             {
                 Positions = default,
+                AttackRanges = default,
+                Damages = default,
+                Shape = AttackSkillCastShape.CircleList,
+                Origin = float3.zero,
+                Direction = new float2(0f, 1f),
+                ShapeLength = 0f,
+                ShapeWidth = 0f,
+                ShapeAngleCos = 1f,
                 AttackRange = 0f,
-                Damage = 0
+                Damage = 0,
+                RepeatCount = 1,
+                RepeatInterval = 0f
             },
         };
+    }
+
+    public static AttackSkillAdvancedConfig CreateDefaultAdvancedConfig()
+    {
+        return new AttackSkillAdvancedConfig
+        {
+            ForwardSectorAngleDegrees = 90f,
+            LineWidth = 0f,
+            SecondaryBaseCount = 1,
+            SecondaryCountLevelWeight = 0f,
+            SecondaryMaxCount = PlayerCombatConstants.MaxAttackCircleCount,
+            SecondaryTargetRange = 8f,
+            SecondaryAttackRangeMultiplier = 0.5f,
+            RandomGroundRadius = 0f,
+            RepeatBaseCount = 1,
+            RepeatCountLevelWeight = 0f,
+            RepeatMaxCount = PlayerCombatConstants.MaxAttackCircleCount,
+            RepeatInterval = 0.35f
+        };
+    }
+}
+
+/// <summary>
+/// SkillCastTarget の可変長 circle 配列を安全に扱う helper。
+/// </summary>
+public static class SkillCastTargetUtility
+{
+    public static bool AddCircle(
+        ref SkillCastTarget castTarget,
+        float3 position,
+        float attackRange,
+        int damage)
+    {
+        if (castTarget.Positions.Length >= PlayerCombatConstants.MaxAttackCircleCount)
+        {
+            return false;
+        }
+
+        castTarget.Positions.Add(position);
+        castTarget.AttackRanges.Add(math.max(0f, attackRange));
+        castTarget.Damages.Add(math.max(0, damage));
+        return true;
+    }
+
+    public static float GetAttackRange(SkillCastTarget castTarget, int index)
+    {
+        if (index >= 0 && index < castTarget.AttackRanges.Length)
+        {
+            return castTarget.AttackRanges[index];
+        }
+
+        return math.max(0f, castTarget.AttackRange);
+    }
+
+    public static int GetDamage(SkillCastTarget castTarget, int index)
+    {
+        if (index >= 0 && index < castTarget.Damages.Length)
+        {
+            return castTarget.Damages[index];
+        }
+
+        return math.max(0, castTarget.Damage);
     }
 }
