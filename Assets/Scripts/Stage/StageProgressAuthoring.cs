@@ -1,11 +1,17 @@
+using Unity.Burst;
 using Unity.Entities;
 using Unity.Mathematics;
 
 /// <summary>
 /// Monster spawn tuning が読む共通ステージ進行度。
+///
+/// 各クリア条件は異なる component を持つが、MonsterSpawnDirectorSystem はこの 0..1 の値だけを読む。
 /// </summary>
 public struct StageSpawnProgress : IComponentData
 {
+    /// <summary>
+    /// 0 = stage 開始付近、1 = clear 付近。範囲外値は計算側で丸める。
+    /// </summary>
     public float Value;
 }
 
@@ -25,7 +31,14 @@ public struct StageClearState : IComponentData
 /// </summary>
 public struct TimedSurvivalStageProgress : IComponentData
 {
+    /// <summary>
+    /// クリアまでの制限時間秒。
+    /// </summary>
     public float TimeLimitSeconds;
+
+    /// <summary>
+    /// 進行済み秒数。clear 後は増やさない。
+    /// </summary>
     public float ElapsedSeconds;
 }
 
@@ -34,7 +47,14 @@ public struct TimedSurvivalStageProgress : IComponentData
 /// </summary>
 public struct KillCountStageProgress : IComponentData
 {
+    /// <summary>
+    /// クリアに必要な討伐数。
+    /// </summary>
     public int TargetKillCount;
+
+    /// <summary>
+    /// 現在討伐数。MonsterDestroySystem が死亡確定時に加算する。
+    /// </summary>
     public int CurrentKillCount;
 }
 
@@ -43,8 +63,19 @@ public struct KillCountStageProgress : IComponentData
 /// </summary>
 public struct BossHealthStageProgress : IComponentData
 {
+    /// <summary>
+    /// 監視する boss entity。Entity.Null の場合は CurrentHp / MaxHp を直接使う。
+    /// </summary>
     public Entity BossEntity;
+
+    /// <summary>
+    /// Boss HP bar 表示用の最大 HP。
+    /// </summary>
     public int MaxHp;
+
+    /// <summary>
+    /// Boss HP bar 表示用の現在 HP。BossEntity が有効なら毎 frame 同期される。
+    /// </summary>
     public int CurrentHp;
 }
 
@@ -137,12 +168,24 @@ public static class StageProgressMath
 
 /// <summary>
 /// 生存ステージの経過時間を更新する。
+///
+/// timeScale 停止中や Warmup 中は、この値も進まない。
+/// カード選択 phase ではステージ時間とモンスター更新を両方止める。
 /// </summary>
 [UpdateBefore(typeof(MonsterSpawnDirectorSystem))]
 public partial struct TimedSurvivalStageSystem : ISystem
 {
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
+        foreach (var runtimeState in SystemAPI.Query<RefRO<StageRuntimeState>>())
+        {
+            if (!StageRuntimeUtility.IsGameplayPhase(runtimeState.ValueRO.Phase))
+            {
+                return;
+            }
+        }
+
         var deltaTime = SystemAPI.Time.DeltaTime;
 
         foreach (var (stage, spawnProgress, clearState) in
@@ -175,6 +218,8 @@ public partial struct TimedSurvivalStageSystem : ISystem
 
 /// <summary>
 /// StageProgress が置かれた scene だけで、各ステージ条件から clear 状態を確定する。
+///
+/// clear 状態は latch され、一度 clear になった stage は同じ play session 中に未 clear へ戻らない。
 /// </summary>
 [UpdateAfter(typeof(TimedSurvivalStageSystem))]
 [UpdateAfter(typeof(KillCountStageSystem))]
@@ -182,11 +227,13 @@ public partial struct TimedSurvivalStageSystem : ISystem
 [UpdateBefore(typeof(MonsterSpawnDirectorSystem))]
 public partial struct StageClearSystem : ISystem
 {
+    [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
         state.RequireForUpdate<StageClearState>();
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
         foreach (var (stage, clearState) in
@@ -226,6 +273,7 @@ public partial struct StageClearSystem : ISystem
 [UpdateBefore(typeof(MonsterSpawnDirectorSystem))]
 public partial struct KillCountStageSystem : ISystem
 {
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
         foreach (var (stage, spawnProgress, clearState) in
@@ -252,8 +300,11 @@ public partial struct KillCountStageSystem : ISystem
 [UpdateBefore(typeof(MonsterSpawnDirectorSystem))]
 public partial struct BossHealthStageSystem : ISystem
 {
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
+        var healthLookup = SystemAPI.GetComponentLookup<HealthComponent>(true);
+
         foreach (var (stage, spawnProgress, clearState) in
                  SystemAPI.Query<
                      RefRW<BossHealthStageProgress>,
@@ -270,10 +321,9 @@ public partial struct BossHealthStageSystem : ISystem
             var maxHp = stage.ValueRO.MaxHp;
 
             if (stage.ValueRO.BossEntity != Entity.Null &&
-                state.EntityManager.Exists(stage.ValueRO.BossEntity) &&
-                state.EntityManager.HasComponent<HealthComponent>(stage.ValueRO.BossEntity))
+                healthLookup.HasComponent(stage.ValueRO.BossEntity))
             {
-                var health = state.EntityManager.GetComponentData<HealthComponent>(stage.ValueRO.BossEntity);
+                var health = healthLookup[stage.ValueRO.BossEntity];
 
                 currentHp = health.CurrentHp;
                 maxHp = math.max(1, health.MaxHp);

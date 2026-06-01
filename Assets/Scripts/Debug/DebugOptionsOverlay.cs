@@ -18,6 +18,7 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
 {
     private const string ObjectName = "Debug Options Overlay";
     private const string BuiltInFontResourceName = "LegacyRuntime.ttf";
+    private const float CanvasScaleMatch = 0.5f;
     private const float Margin = 16f;
     private const float TitleBarHeight = 22f;
     private const float ResizeHandleSize = 18f;
@@ -33,8 +34,16 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
     private const float SkillLevelButtonSize = 22f;
     private const float SkillLevelMinusButtonX = 168f;
     private const float SkillLevelPlusButtonX = 198f;
+    private const float FpsOverlayX = 12f;
+    private const float FpsOverlayY = 12f;
+    private const float FpsOverlayWidth = 104f;
+    private const float FpsOverlayHeight = 28f;
+    private const float LevelOverlayX = 12f;
+    private const float LevelOverlayY = 58f;
+    private const float LevelOverlayWidth = 184f;
+    private const float LevelOverlayHeight = 64f;
     private const float SlotOverlayX = 12f;
-    private const float SlotOverlayY = 80f;
+    private const float SlotOverlayY = 130f;
     private const float SlotOverlayWidth = 144f;
     private const float SlotOverlayHeight = 52f;
     private const float SlotRowLabelX = 6f;
@@ -46,6 +55,7 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
 
     private static readonly Vector2 DefaultWindowSize = new Vector2(320f, 308f);
     private static readonly Vector2 MinimumWindowSize = new Vector2(260f, 248f);
+    private static readonly Vector2 ReferenceResolution = new Vector2(1920f, 1080f);
     private static readonly Color WindowBackgroundColor = new Color(0f, 0f, 0f, 0.36f);
     private static readonly Color CheckboxOnColor = new Color(0.92f, 0.92f, 0.92f, 1f);
     private static readonly Color CheckboxOffColor = new Color(0.06f, 0.06f, 0.06f, 1f);
@@ -89,6 +99,7 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
     private bool isResizing;
     private bool isDragging;
     private bool ownsOverlayCanvas;
+    private bool hasWindowRect;
     private Vector2 resizeMouseStart;
     private Vector2 resizeSizeStart;
     private Vector2 dragMouseStart;
@@ -165,12 +176,6 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
             Destroy(gameObject);
             return;
         }
-
-        windowRect = DebugOptionsOverlayMath.CalculateDefaultWindowRect(
-            Screen.width,
-            Screen.height,
-            DefaultWindowSize,
-            Margin);
     }
 
     private void OnDisable()
@@ -282,9 +287,11 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
 
         var canvasObject = new GameObject("Debug Options Canvas", typeof(RectTransform));
         var canvas = canvasObject.AddComponent<Canvas>();
+        var canvasScaler = canvasObject.AddComponent<CanvasScaler>();
 
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
         canvas.sortingOrder = 1000;
+        ConfigureCanvasScaler(canvasScaler);
         Object.DontDestroyOnLoad(canvasObject);
 
         overlayCanvas = canvas;
@@ -406,7 +413,11 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
             return;
         }
 
-        var mousePosition = ToTopLeftMousePosition(mouse.position.ReadValue());
+        var canvasSize = GetCanvasSize();
+
+        EnsureWindowRect(canvasSize);
+
+        var mousePosition = ToCanvasTopLeftMousePosition(mouse.position.ReadValue());
 
         if (mouse.leftButton.wasPressedThisFrame)
         {
@@ -458,8 +469,8 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
             windowRect.height = resizeSizeStart.y + delta.y;
             windowRect = DebugOptionsOverlayMath.ClampWindowRect(
                 windowRect,
-                Screen.width,
-                Screen.height,
+                canvasSize.x,
+                canvasSize.y,
                 MinimumWindowSize);
             return;
         }
@@ -472,8 +483,8 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
             windowRect.y = dragWindowStart.y + delta.y;
             windowRect = DebugOptionsOverlayMath.ClampWindowRect(
                 windowRect,
-                Screen.width,
-                Screen.height,
+                canvasSize.x,
+                canvasSize.y,
                 MinimumWindowSize);
         }
     }
@@ -543,15 +554,19 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
             return;
         }
 
+        var canvasSize = GetCanvasSize();
+
+        EnsureWindowRect(canvasSize);
+
         windowRect = DebugOptionsOverlayMath.ClampWindowRect(
             windowRect,
-            Screen.width,
-            Screen.height,
+            canvasSize.x,
+            canvasSize.y,
             MinimumWindowSize);
 
         SetTopLeftRect(windowRoot, windowRect.x, windowRect.y, windowRect.width, windowRect.height);
-        SetTopLeftRect(fpsRoot, 12f, 12f, 104f, 28f);
-        SetTopLeftRect(levelRoot, 12f, 46f, 184f, 28f);
+        SetTopLeftRect(fpsRoot, FpsOverlayX, FpsOverlayY, FpsOverlayWidth, FpsOverlayHeight);
+        SetTopLeftRect(levelRoot, LevelOverlayX, LevelOverlayY, LevelOverlayWidth, LevelOverlayHeight);
         SetTopLeftRect(slotRoot, SlotOverlayX, SlotOverlayY, SlotOverlayWidth, SlotOverlayHeight);
         UpdateSkillSlotIconLayout();
         SetTopLeftRect(
@@ -701,6 +716,38 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         skillLevelMinusButtonImage = null;
         skillLevelPlusButtonImage = null;
         ownsOverlayCanvas = false;
+    }
+
+    private void EnsureWindowRect(Vector2 canvasSize)
+    {
+        if (hasWindowRect)
+        {
+            return;
+        }
+
+        windowRect = DebugOptionsOverlayMath.CalculateDefaultWindowRect(
+            canvasSize.x,
+            canvasSize.y,
+            DefaultWindowSize,
+            Margin);
+        hasWindowRect = true;
+    }
+
+    private Vector2 GetCanvasSize()
+    {
+        if (overlayCanvas != null && overlayCanvas.transform is RectTransform canvasRect)
+        {
+            var size = canvasRect.rect.size;
+
+            if (size.x > 0f && size.y > 0f)
+            {
+                return size;
+            }
+        }
+
+        return new Vector2(
+            Mathf.Max(1f, Screen.width),
+            Mathf.Max(1f, Screen.height));
     }
 
     private void ClearSkillSlotIconReferences()
@@ -1190,9 +1237,32 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
             SkillLevelButtonSize);
     }
 
-    private static Vector2 ToTopLeftMousePosition(Vector2 bottomLeftMousePosition)
+    private Vector2 ToCanvasTopLeftMousePosition(Vector2 bottomLeftMousePosition)
     {
+        if (overlayCanvas != null &&
+            overlayCanvas.transform is RectTransform canvasRect &&
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                canvasRect,
+                bottomLeftMousePosition,
+                null,
+                out var localPosition))
+        {
+            var canvasArea = canvasRect.rect;
+
+            return new Vector2(
+                localPosition.x - canvasArea.xMin,
+                canvasArea.yMax - localPosition.y);
+        }
+
         return new Vector2(bottomLeftMousePosition.x, Screen.height - bottomLeftMousePosition.y);
+    }
+
+    private static void ConfigureCanvasScaler(CanvasScaler canvasScaler)
+    {
+        canvasScaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        canvasScaler.referenceResolution = ReferenceResolution;
+        canvasScaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+        canvasScaler.matchWidthOrHeight = CanvasScaleMatch;
     }
 
     private static void UpdateCheckbox(Image checkboxImage, bool isChecked)

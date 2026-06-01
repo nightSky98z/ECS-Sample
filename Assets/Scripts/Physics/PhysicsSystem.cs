@@ -4,6 +4,9 @@ using Unity.Mathematics;
 
 /// <summary>
 /// Velocity.y に重力を適用する。
+///
+/// 水平移動は MovementSystem、接地検出は GroundSensorSystem が担当する。
+/// この System は「落下速度を積分する」責務だけに閉じる。
 /// </summary>
 [UpdateAfter(typeof(PlayerInputSystem))]
 [UpdateAfter(typeof(MonsterSimpleAiSystem))]
@@ -19,6 +22,14 @@ public partial struct PhysicsSystem : ISystem
     [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
+        foreach (var runtimeState in SystemAPI.Query<RefRO<StageRuntimeState>>())
+        {
+            if (!StageRuntimeUtility.IsGameplayPhase(runtimeState.ValueRO.Phase))
+            {
+                return;
+            }
+        }
+
         var deltaTime = SystemAPI.Time.DeltaTime;
 
         foreach (var (velocity, gravity, groundSnap) in
@@ -43,13 +54,26 @@ public partial struct PhysicsSystem : ISystem
 /// </summary>
 public struct GroundSnapResult
 {
+    /// <summary>
+    /// 接地補正後の root 位置。
+    /// </summary>
     public float3 Position;
+
+    /// <summary>
+    /// 接地補正後の速度。下向き速度は接地時に 0 へ丸める。
+    /// </summary>
     public float3 Velocity;
+
+    /// <summary>
+    /// 0 = airborne, 1 = grounded。
+    /// </summary>
     public byte IsGrounded;
 }
 
 /// <summary>
 /// PhysicsSystem と接地処理が使う物理計算。
+///
+/// Unity Physics の query 結果を直接保持せず、テスト可能な値計算だけをここに置く。
 /// </summary>
 public static class PhysicsMath
 {

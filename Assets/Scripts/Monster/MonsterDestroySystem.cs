@@ -5,6 +5,9 @@ using Unity.Transforms;
 
 /// <summary>
 /// HP が 0 以下になった Monster を death VFX 状態へ移行し、通常 monster は再利用、特殊 monster は削除する。
+///
+/// 死亡開始時は structural change を EntityCommandBuffer に積み、Velocity / CollisionRadius を外すか無効化して
+/// AI、移動、衝突処理から切り離す。通常 monster は Entity を破棄せず、VFX 完了後に再配置して再利用する。
 /// </summary>
 [UpdateInGroup(typeof(SimulationSystemGroup))]
 [UpdateAfter(typeof(SkillLogicSystem))]
@@ -175,6 +178,9 @@ public partial struct MonsterDestroySystem : ISystem
         }
     }
 
+    /// <summary>
+    /// 討伐数ステージが存在する場合だけ、死亡確定した通常 monster 数を進行度へ加算する。
+    /// </summary>
     private void AddKillCount(ref SystemState state, int killedMonsterCount)
     {
         foreach (var stage in SystemAPI.Query<RefRW<KillCountStageProgress>>())
@@ -185,6 +191,10 @@ public partial struct MonsterDestroySystem : ISystem
         }
     }
 
+    /// <summary>
+    /// 死亡 VFX 後の再配置に必要な spawn 設定、player 位置、地面高さを取得する。
+    /// </summary>
+    /// <returns>通常 monster を recycle できるだけの情報が揃っていれば true。</returns>
     private bool TryGetDeathRecycleContext(
         ref SystemState state,
         out MonsterSpawnDirectorConfig config,
@@ -227,6 +237,9 @@ public partial struct MonsterDestroySystem : ISystem
         return false;
     }
 
+    /// <summary>
+    /// 死亡 VFX が終わった通常 monster を、player 周辺の画面外 ring に戻す。
+    /// </summary>
     private void RecycleMonsterAfterDeathVfx(
         ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
@@ -259,6 +272,9 @@ public partial struct MonsterDestroySystem : ISystem
             vfxState.OriginalCollisionRadius);
     }
 
+    /// <summary>
+    /// GroundSensor を持つ prefab の root が、sensor 下端で地面に接する位置を計算する。
+    /// </summary>
     private static LocalTransform CalculateRecycleTransform(
         ref SystemState state,
         Entity entity,
@@ -280,6 +296,9 @@ public partial struct MonsterDestroySystem : ISystem
         return LocalTransform.FromPositionRotationScale(position, rotation, scale);
     }
 
+    /// <summary>
+    /// recycle した monster を次の生存サイクルへ戻すため、runtime 状態を初期値へ戻す。
+    /// </summary>
     private void ResetRecycledMonsterRuntimeState(
         ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
@@ -349,8 +368,19 @@ public partial struct MonsterDestroySystem : ISystem
             entityCommandBuffer.SetComponent(entity, DebuffMath.CreateNeutralAggregate());
         }
 
+        if (state.EntityManager.HasComponent<FreezeTag>(entity))
+        {
+            entityCommandBuffer.RemoveComponent<FreezeTag>(entity);
+        }
+
+        if (state.EntityManager.HasComponent<FreezeComponent>(entity))
+        {
+            entityCommandBuffer.RemoveComponent<FreezeComponent>(entity);
+        }
+
         if (state.EntityManager.HasComponent<MonsterHitVfxConfig>(entity))
         {
+            // 被弾色や死亡色が残らないように、linked render entity の base color も戻す。
             VFXMaterialUtility.AddOrSetBaseColorForLinkedRenderEntities(
                 ref state,
                 ref entityCommandBuffer,
@@ -361,6 +391,9 @@ public partial struct MonsterDestroySystem : ISystem
         entityCommandBuffer.RemoveComponent<MonsterDestroyVfxState>(entity);
     }
 
+    /// <summary>
+    /// root と linked render / collider entity をまとめて破棄する。
+    /// </summary>
     private void DestroyLinkedEntityGroup(
         ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
@@ -383,19 +416,30 @@ public partial struct MonsterDestroySystem : ISystem
 
 /// <summary>
 /// Monster death VFX の時間、scale、material color 計算。
+///
+/// VFX の runtime 状態を持たない純粋計算にして、System から独立して検証できるようにする。
 /// </summary>
 public static class MonsterDestroyVfxMath
 {
+    /// <summary>
+    /// VFX duration を 0 より大きい値へ正規化する。
+    /// </summary>
     public static float NormalizeDuration(float duration)
     {
         return math.max(0.01f, math.abs(duration));
     }
 
+    /// <summary>
+    /// elapsed / duration から 0..1 の再生率を返す。
+    /// </summary>
     public static float CalculateProgress(float elapsedTime, float duration)
     {
         return math.clamp(elapsedTime / NormalizeDuration(duration), 0f, 1f);
     }
 
+    /// <summary>
+    /// 死亡 VFX 中の scale を線形補間で計算する。
+    /// </summary>
     public static float CalculateScale(float originalScale, float endScale, float progress)
     {
         var safeProgress = math.clamp(progress, 0f, 1f);
@@ -405,6 +449,9 @@ public static class MonsterDestroyVfxMath
         return math.lerp(safeOriginalScale, safeEndScale, safeProgress);
     }
 
+    /// <summary>
+    /// 死亡 VFX 中の base color を線形補間で計算する。
+    /// </summary>
     public static float4 CalculateBaseColor(float4 startColor, float4 endColor, float progress)
     {
         return math.lerp(startColor, endColor, math.clamp(progress, 0f, 1f));

@@ -4,6 +4,7 @@ using UnityEngine;
 
 /// <summary>
 /// Attack skill の SFX / VFX をメインスレッドで再生する。
+/// UnityEngine.Object と AudioSource を使うため SystemBase に置き、Burst/job 化しない。
 /// </summary>
 [UpdateInGroup(typeof(SimulationSystemGroup))]
 [UpdateAfter(typeof(SkillLogicSystem))]
@@ -20,6 +21,14 @@ public partial class SkillPresentationSystem : SystemBase
 
     protected override void OnUpdate()
     {
+        foreach (var runtimeState in SystemAPI.Query<RefRO<StageRuntimeState>>())
+        {
+            if (!StageRuntimeUtility.IsGameplayPhase(runtimeState.ValueRO.Phase))
+            {
+                return;
+            }
+        }
+
         foreach (var (skillState, timing, castTarget, presentation) in
                  SystemAPI.Query<RefRW<AttackSkillState>, RefRO<AttackSkillTimingConfig>, RefRO<SkillCastTarget>, RefRO<AttackSkillPresentation>>()
                      .WithAll<EquippedSkillTag, AttackSkillSlotTag>())
@@ -93,6 +102,7 @@ public partial class SkillPresentationSystem : SystemBase
 
         for (var targetIndex = 0; targetIndex < castTarget.Positions.Length; targetIndex++)
         {
+            // ダメージ範囲はデータで判定し、VFX は見た目だけを範囲に合わせる。
             var vfxScale = SkillMath.CalculateVfxScale(
                 SkillCastTargetUtility.GetAttackRange(castTarget, targetIndex),
                 timing);

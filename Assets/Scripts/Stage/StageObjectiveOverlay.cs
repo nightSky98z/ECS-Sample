@@ -12,9 +12,11 @@ public sealed class StageObjectiveOverlay : MonoBehaviour
     private const string OverlayObjectName = "Stage Objective Overlay";
     private const string CanvasObjectName = "Stage Objective Overlay Canvas";
     private const string BuiltInFontResourceName = "LegacyRuntime.ttf";
+    private const float CanvasScaleMatch = 0.5f;
 
     private static readonly Vector2 RootSize = new Vector2(720f, 96f);
     private static readonly Vector2 BossBarSize = new Vector2(560f, 18f);
+    private static readonly Vector2 ReferenceResolution = new Vector2(1920f, 1080f);
     private static readonly Color PanelColor = new Color(0f, 0f, 0f, 0.35f);
     private static readonly Color BossBackColor = new Color(0.18f, 0.08f, 0.04f, 0.95f);
     private static readonly Color BossFrontColor = new Color(0.78f, 0.12f, 0.08f, 1f);
@@ -223,9 +225,11 @@ public sealed class StageObjectiveOverlay : MonoBehaviour
 
         var canvasObject = new GameObject(CanvasObjectName, typeof(RectTransform));
         var canvas = canvasObject.AddComponent<Canvas>();
+        var canvasScaler = canvasObject.AddComponent<CanvasScaler>();
 
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
         canvas.sortingOrder = 110;
+        ConfigureCanvasScaler(canvasScaler);
         Object.DontDestroyOnLoad(canvasObject);
 
         TargetCanvas = canvas;
@@ -377,6 +381,14 @@ public sealed class StageObjectiveOverlay : MonoBehaviour
         text.raycastTarget = false;
 
         return text;
+    }
+
+    private static void ConfigureCanvasScaler(CanvasScaler canvasScaler)
+    {
+        canvasScaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        canvasScaler.referenceResolution = ReferenceResolution;
+        canvasScaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+        canvasScaler.matchWidthOrHeight = CanvasScaleMatch;
     }
 
     private void SetVisible(bool visible)

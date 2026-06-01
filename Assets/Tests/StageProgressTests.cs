@@ -63,6 +63,7 @@ public sealed class StageProgressTests
         StringAssert.Contains("StageClearSystem", source);
         StringAssert.Contains("RequireForUpdate<StageClearState>", source);
         StringAssert.Contains("SystemAPI.Time.DeltaTime", source);
+        StringAssert.Contains("カード選択 phase ではステージ時間とモンスター更新を両方止める。", source);
         Assert.IsFalse(source.Contains("Time.unscaledDeltaTime"));
     }
 
@@ -71,7 +72,8 @@ public sealed class StageProgressTests
     {
         var source = File.ReadAllText("Assets/Scripts/Stage/StageProgressAuthoring.cs");
 
-        StringAssert.Contains("state.EntityManager.GetComponentData<HealthComponent>", source);
+        StringAssert.Contains("SystemAPI.GetComponentLookup<HealthComponent>(true)", source);
+        StringAssert.Contains("healthLookup[stage.ValueRO.BossEntity]", source);
         StringAssert.Contains("maxHp = math.max(1, health.MaxHp)", source);
         Assert.IsFalse(source.Contains("math.max(health.MaxHp, maxHp)"));
     }

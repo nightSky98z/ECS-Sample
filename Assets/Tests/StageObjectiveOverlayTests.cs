@@ -79,4 +79,15 @@ public sealed class StageObjectiveOverlayTests
         StringAssert.Contains("LegacyRuntime.ttf", source);
         Assert.IsFalse(source.Contains("Arial.ttf"));
     }
+
+    [Test]
+    public void StageObjectiveOverlayUsesCanvasScalerForResolutionIndependentLayout()
+    {
+        var source = File.ReadAllText("Assets/Scripts/Stage/StageObjectiveOverlay.cs");
+
+        StringAssert.Contains("CanvasScaler", source);
+        StringAssert.Contains("ScaleWithScreenSize", source);
+        StringAssert.Contains("ReferenceResolution", source);
+        Assert.IsFalse(source.Contains("EnsureCanvasScaler(TargetCanvas)"));
+    }
 }

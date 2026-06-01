@@ -44,6 +44,18 @@ public sealed class DebugOptionsOverlayTests
     }
 
     [Test]
+    public void DebugOptionsUsesCanvasScalerForResolutionIndependentLayout()
+    {
+        var source = File.ReadAllText("Assets/Scripts/Debug/DebugOptionsOverlay.cs");
+
+        StringAssert.Contains("CanvasScaler", source);
+        StringAssert.Contains("ScaleWithScreenSize", source);
+        StringAssert.Contains("ReferenceResolution", source);
+        StringAssert.Contains("ToCanvasTopLeftMousePosition", source);
+        Assert.IsFalse(source.Contains("ToTopLeftMousePosition"));
+    }
+
+    [Test]
     public void RuntimeDrawerKnowsWhenAnyRuntimeOptionIsEnabled()
     {
         Assert.IsFalse(DebugOptionsRuntimeDrawer.HasAnyOptionEnabled(false, false, false));
@@ -192,7 +204,9 @@ public sealed class DebugOptionsOverlayTests
         StringAssert.Contains("slotIconBuffer", source);
         StringAssert.Contains("slotIconImages", source);
         StringAssert.Contains("slotIconTexts", source);
-        StringAssert.Contains("SlotOverlayY = 80f", source);
+        StringAssert.Contains("LevelOverlayY = 58f", source);
+        StringAssert.Contains("LevelOverlayHeight = 64f", source);
+        StringAssert.Contains("SlotOverlayY = 130f", source);
         StringAssert.Contains("SlotIconSize = 18f", source);
         StringAssert.Contains("ReadPlayerSkillSlotIcons(slotIconBuffer)", source);
         StringAssert.Contains("UpdateSkillSlotIcons", source);

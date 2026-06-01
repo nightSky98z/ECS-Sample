@@ -5,7 +5,7 @@ using UnityEngine;
 using UnityEngine.Serialization;
 
 /// <summary>
-/// プレイヤーを見つけるためのタグ、データなし
+/// プレイヤーを見つけるためのタグ。データは持たず、query の分類だけに使う。
 /// </summary>
 public struct PlayerTag : IComponentData
 {
@@ -17,11 +17,17 @@ public struct PlayerTag : IComponentData
 /// </summary>
 public struct PlayerInput : IComponentData
 {
+    /// <summary>
+    /// X が world X、Y が world Z 方向の入力。長さは最大 1。
+    /// </summary>
     public float2 Move;
 }
 
 /// <summary>
 /// GameObject の Player Prefab を ECS の Player Entity に変換する Authoring。
+///
+/// この MonoBehaviour は runtime gameplay logic を持たない。Inspector の値を Baker で component data に変換し、
+/// 以後の更新は PlayerInputSystem / MovementSystem / Skill 系 System が行う。
 /// </summary>
 public class PlayerEntity : MonoBehaviour
 {
@@ -145,6 +151,9 @@ public class PlayerEntity : MonoBehaviour
 
     private class Baker : Unity.Entities.Baker<PlayerEntity>
     {
+        /// <summary>
+        /// Player prefab root を gameplay entity に変換し、初期スキルスロットも同じ owner に紐付けて作る。
+        /// </summary>
         public override void Bake(PlayerEntity authoring)
         {
             var entity = GetEntity(TransformUsageFlags.Dynamic);
@@ -218,6 +227,7 @@ public class PlayerEntity : MonoBehaviour
                 AddComponent(entity, groundSensor);
             }
 
+            // HP bar は任意パーツなので、Prefab に anchor がある場合だけ component を持たせる。
             if (HealthBarAnchorAuthoringUtility.TryCreateHealthBarAnchor(authoring.transform, out var healthBarAnchor))
             {
                 AddComponent(entity, healthBarAnchor);
@@ -247,6 +257,8 @@ public class PlayerEntity : MonoBehaviour
                     continue;
                 }
 
+                // 現在は DebugScene 用に 0 番攻撃スロットへ初期スキルを装備する。
+                // 将来のカード選択では、空スロットに同じ component 群を書き込む。
                 AddComponent<EquippedSkillTag>(slot);
                 var defaultSkill = authoring.CreateDefaultAttackSkill();
 
@@ -316,6 +328,9 @@ public class PlayerEntity : MonoBehaviour
         return fallbackSkill;
     }
 
+    /// <summary>
+    /// Inspector に割り当てられた SkillEntity が攻撃スキル定義として使えるかを確認する。
+    /// </summary>
     private bool TryGetDefaultAttackSkillAuthoring(out IAttackSkillDefinitionAuthoring skillAuthoring)
     {
         skillAuthoring = DefaultAttackSkillEntity as IAttackSkillDefinitionAuthoring;

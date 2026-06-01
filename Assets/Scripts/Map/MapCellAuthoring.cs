@@ -1,3 +1,4 @@
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
@@ -9,9 +10,79 @@ using UnityEngine;
 /// </summary>
 public struct MapCellConfig : IComponentData
 {
+    /// <summary>
+    /// 座標ごとの prefab 選択を決定する seed。
+    /// </summary>
     public int WorldSeed;
+
+    /// <summary>
+    /// XZ 平面上の cell 一辺の長さ。
+    /// </summary>
     public float CellSize;
+
+    /// <summary>
+    /// player がいる cell から Chebyshev 距離で維持する半径。
+    /// </summary>
     public int LoadRadiusInCells;
+
+    /// <summary>
+    /// gameplay が依存してよい完成済み cell 半径。
+    /// </summary>
+    public int ActiveRadiusInCells;
+
+    /// <summary>
+    /// gameplay 中に先回りして生成する cell 半径。
+    /// </summary>
+    public int PreloadRadiusInCells;
+
+    /// <summary>
+    /// この半径より外側の cell を削除候補にする。
+    /// </summary>
+    public int UnloadRadiusInCells;
+
+    /// <summary>
+    /// 1 frame で作成する cell root 数の上限。
+    /// </summary>
+    public int MaxCellCreatesPerFrame;
+
+    /// <summary>
+    /// 1 frame で削除する cell owned entity root 数の上限。
+    /// </summary>
+    public int MaxOwnedEntityDestroysPerFrame;
+
+    /// <summary>
+    /// 1 frame で生成する cell 内 static mesh 数の上限。
+    /// </summary>
+    public int MaxStaticMeshSpawnsPerFrame;
+
+    /// <summary>
+    /// 画面に入る可能性がある cell で、1 frame に生成する static mesh 数の上限。
+    /// </summary>
+    public int MaxVisibleStaticMeshSpawnsPerFrame;
+
+    /// <summary>
+    /// Camera の地面表示範囲に足す world 単位の余白。
+    /// </summary>
+    public float StaticMeshVisiblePadding;
+
+    /// <summary>
+    /// 1 frame で navigation build する cell 数の上限。
+    /// </summary>
+    public int MaxNavBuildCellsPerFrame;
+
+    /// <summary>
+    /// 0 = preload では後方 cell を省略できる, 1 = preload 半径内を全方向生成する。
+    /// </summary>
+    public byte PreloadBehindCells;
+
+    /// <summary>
+    /// 後方省略時、移動方向との dot がこの値以上なら preload 対象にする。
+    /// </summary>
+    public float ForwardPreloadDotThreshold;
+
+    /// <summary>
+    /// cell root を置く world Y。
+    /// </summary>
     public float GroundY;
 }
 
@@ -21,7 +92,14 @@ public struct MapCellConfig : IComponentData
 [InternalBufferCapacity(8)]
 public struct MapCellPrefabElement : IBufferElementData
 {
+    /// <summary>
+    /// Instantiate する cell prefab entity。
+    /// </summary>
     public Entity Prefab;
+
+    /// <summary>
+    /// 相対的な抽選重み。0 以下は無効。
+    /// </summary>
     public float Weight;
 }
 
@@ -30,7 +108,14 @@ public struct MapCellPrefabElement : IBufferElementData
 /// </summary>
 public struct MapCell : IComponentData
 {
+    /// <summary>
+    /// この cell を作った MapCellConfig entity。
+    /// </summary>
     public Entity ConfigEntity;
+
+    /// <summary>
+    /// 無限マップ上の整数 cell 座標。
+    /// </summary>
     public int2 Coord;
 
     /// <summary>
@@ -47,18 +132,49 @@ public struct MapCell : IComponentData
     /// 0 = cell 初期 monster 未生成, 1 = 生成済み。
     /// </summary>
     public byte MonstersSpawned;
+
+    /// <summary>
+    /// Cell 内 PCG static mesh の次に展開する buffer index。
+    /// </summary>
+    public int LocalStaticMeshSpawnCursor;
 }
 
 /// <summary>
-/// Map Cell が所有し、Cell unload 時に一緒に破棄される Entity root。
+/// Map Cell root が所有する runtime entity root。
 /// </summary>
-public struct MapCellOwnedEntity : IComponentData
+[InternalBufferCapacity(64)]
+public struct MapCellOwnedEntityElement : IBufferElementData
 {
-    public Entity CellEntity;
+    /// <summary>
+    /// Cell unload 時に cell と同じライフタイムで破棄する entity root。
+    /// </summary>
+    public Entity Value;
+}
+
+/// <summary>
+/// Cell unload 中の root に付ける状態。
+///
+/// Owned entity を frame budget で少しずつ破棄し、全部消えた後で cell root を破棄する。
+/// </summary>
+public struct MapCellUnloadState : IComponentData
+{
+    /// <summary>
+    /// 0 = unload 予約済み。将来、段階的な unload phase が必要になった場合に使う。
+    /// </summary>
+    public byte Phase;
+
+    /// <summary>
+    /// 次に破棄する MapCellOwnedEntityElement の index。
+    /// 所有 entity の破棄を frame budget で分割し、全体走査を避ける。
+    /// </summary>
+    public int NextOwnedEntityIndex;
 }
 
 /// <summary>
 /// Player 周辺に Cell prefab を生成する Authoring。
+///
+/// PCG は cell prefab 内にローカル設計として持たせる。この Authoring は cell の active set と
+/// prefab 選択だけを ECS に渡す。
 /// </summary>
 public sealed class MapCellAuthoring : MonoBehaviour
 {
@@ -81,9 +197,64 @@ public sealed class MapCellAuthoring : MonoBehaviour
     private float CellSize = 100f;
 
     [SerializeField]
+    [HideInInspector]
     [Min(0)]
-    [Tooltip("プレイヤー周辺でロード維持する半径。1 は現在セルと周囲 8 セルを意味する。")]
+    [Tooltip("旧形式のロード半径。現在は PreloadRadiusInCells から自動設定する。")]
     private int LoadRadiusInCells = 1;
+
+    [SerializeField]
+    [Min(0)]
+    [Tooltip("ゲームロジックが依存してよい完成済みセル半径。現在は中心セルと周囲 8 セルの 3x3 固定。")]
+    private int ActiveRadiusInCells = 1;
+
+    [SerializeField]
+    [Min(0)]
+    [Tooltip("プレイヤー到達前に先回りして作るセル半径。現在は 3x3 固定のため ActiveRadius と同じ値に丸める。")]
+    private int PreloadRadiusInCells = 1;
+
+    [SerializeField]
+    [Min(0)]
+    [Tooltip("この半径より外側のセルを削除候補にする。現在は 3x3 固定のため ActiveRadius と同じ値に丸める。")]
+    private int UnloadRadiusInCells = 1;
+
+    [SerializeField]
+    [Min(1)]
+    [Tooltip("1 フレームで作成するセル root 数。Warmup と gameplay streaming の負荷を制限する。")]
+    private int MaxCellCreatesPerFrame = 2;
+
+    [SerializeField]
+    [Min(1)]
+    [Tooltip("1 フレームで削除するセル所有オブジェクト数。木や岩が多いセルの削除負荷を分散する。")]
+    private int MaxOwnedEntityDestroysPerFrame = 150;
+
+    [SerializeField]
+    [Min(1)]
+    [Tooltip("1 フレームで展開する PCG static mesh 数。初期値は 10。重いセルでは小さくして生成負荷を分散する。")]
+    private int MaxStaticMeshSpawnsPerFrame = 10;
+
+    [SerializeField]
+    [Min(1)]
+    [Tooltip("画面に入る可能性があるセルで、1 フレームに優先展開する PCG static mesh 数。ポップインが見える場合は大きくする。")]
+    private int MaxVisibleStaticMeshSpawnsPerFrame = 200;
+
+    [SerializeField]
+    [Min(0f)]
+    [Tooltip("カメラで見えている地面範囲に足す余白。移動直後に画面へ入るセルを先に完成させる。")]
+    private float StaticMeshVisiblePadding = 12f;
+
+    [SerializeField]
+    [Min(1)]
+    [Tooltip("1 フレームで navigation build するセル数。重い場合は 1 のままにする。")]
+    private int MaxNavBuildCellsPerFrame = 1;
+
+    [SerializeField]
+    [Tooltip("有効なら PreloadRadius 内の後方セルも生成する。無効なら移動方向の後方外周セルを省略する。")]
+    private bool PreloadBehindCells = false;
+
+    [SerializeField]
+    [Range(-1f, 1f)]
+    [Tooltip("後方セル省略時の方向判定。dot がこの値以上の外周セルだけを先読みする。")]
+    private float ForwardPreloadDotThreshold = -0.25f;
 
     [SerializeField]
     [Tooltip("各セルプレハブのルートに使う Y 座標。")]
@@ -96,7 +267,18 @@ public sealed class MapCellAuthoring : MonoBehaviour
 
         RandomSeed = (int)MapCellUtility.NormalizeSeed(RandomSeed);
         CellSize = math.max(0.1f, math.abs(CellSize));
-        LoadRadiusInCells = math.max(0, LoadRadiusInCells);
+        ActiveRadiusInCells = 1;
+        PreloadRadiusInCells = ActiveRadiusInCells;
+        UnloadRadiusInCells = ActiveRadiusInCells;
+        LoadRadiusInCells = PreloadRadiusInCells;
+        MaxCellCreatesPerFrame = MapStreamingUtility.NormalizeFrameBudget(MaxCellCreatesPerFrame);
+        MaxOwnedEntityDestroysPerFrame = MapStreamingUtility.NormalizeFrameBudget(MaxOwnedEntityDestroysPerFrame);
+        MaxStaticMeshSpawnsPerFrame = MapStreamingUtility.NormalizeFrameBudget(MaxStaticMeshSpawnsPerFrame);
+        MaxVisibleStaticMeshSpawnsPerFrame =
+            MapStreamingUtility.NormalizeFrameBudget(MaxVisibleStaticMeshSpawnsPerFrame);
+        StaticMeshVisiblePadding = math.max(0f, StaticMeshVisiblePadding);
+        MaxNavBuildCellsPerFrame = MapStreamingUtility.NormalizeFrameBudget(MaxNavBuildCellsPerFrame);
+        ForwardPreloadDotThreshold = math.clamp(ForwardPreloadDotThreshold, -1f, 1f);
     }
 
     private void MigrateLegacyCellPrefab()
@@ -166,13 +348,29 @@ public sealed class MapCellAuthoring : MonoBehaviour
             }
 
             var entity = GetEntity(TransformUsageFlags.None);
+            var activeRadius = 1;
 
             AddComponent(entity, new MapCellConfig
             {
                 WorldSeed = authoring.RandomSeed,
                 CellSize = authoring.CellSize,
-                LoadRadiusInCells = authoring.LoadRadiusInCells,
+                LoadRadiusInCells = activeRadius,
+                ActiveRadiusInCells = activeRadius,
+                PreloadRadiusInCells = activeRadius,
+                UnloadRadiusInCells = activeRadius,
+                MaxCellCreatesPerFrame = authoring.MaxCellCreatesPerFrame,
+                MaxOwnedEntityDestroysPerFrame = authoring.MaxOwnedEntityDestroysPerFrame,
+                MaxStaticMeshSpawnsPerFrame = authoring.MaxStaticMeshSpawnsPerFrame,
+                MaxVisibleStaticMeshSpawnsPerFrame = authoring.MaxVisibleStaticMeshSpawnsPerFrame,
+                StaticMeshVisiblePadding = authoring.StaticMeshVisiblePadding,
+                MaxNavBuildCellsPerFrame = authoring.MaxNavBuildCellsPerFrame,
+                PreloadBehindCells = authoring.PreloadBehindCells ? (byte)1 : (byte)0,
+                ForwardPreloadDotThreshold = authoring.ForwardPreloadDotThreshold,
                 GroundY = authoring.GroundY
+            });
+            AddComponent(entity, new StageRuntimeState
+            {
+                Phase = StageRuntimePhase.Warmup
             });
 
             var prefabBuffer = AddBuffer<MapCellPrefabElement>(entity);
@@ -353,25 +551,247 @@ public static class MapCellUtility
 }
 
 /// <summary>
+/// Map streaming の半径、予算、優先度を計算する。
+/// </summary>
+public static class MapStreamingUtility
+{
+    /// <summary>
+    /// Gameplay が依存する半径を非負値へ丸める。
+    /// </summary>
+    public static int NormalizeActiveRadius(int activeRadius)
+    {
+        return math.max(0, activeRadius);
+    }
+
+    /// <summary>
+    /// Preload 半径を Active 半径以上へ丸める。
+    /// </summary>
+    public static int NormalizePreloadRadius(int activeRadius, int preloadRadius)
+    {
+        return math.max(NormalizeActiveRadius(activeRadius), math.max(0, preloadRadius));
+    }
+
+    /// <summary>
+    /// Unload 半径を Preload 半径以上へ丸める。
+    /// </summary>
+    public static int NormalizeUnloadRadius(int preloadRadius, int unloadRadius)
+    {
+        return math.max(math.max(0, preloadRadius), math.max(0, unloadRadius));
+    }
+
+    /// <summary>
+    /// 1 frame の処理予算を 1 以上へ丸める。
+    /// </summary>
+    public static int NormalizeFrameBudget(int budget)
+    {
+        return math.max(1, budget);
+    }
+
+    /// <summary>
+    /// ActiveRadius が欠けた場合だけ、通常予算を超えて必要 cell 数まで引き上げる。
+    /// </summary>
+    public static int CalculateEmergencyCreateBudget(int normalBudget, int missingActiveCellCount)
+    {
+        return math.max(NormalizeFrameBudget(normalBudget), math.max(0, missingActiveCellCount));
+    }
+
+    /// <summary>
+    /// ActiveRadius 内が不足しているため、cell root 作成予算を引き上げるべきかを返す。
+    /// </summary>
+    public static bool NeedsEmergencyActiveCellCreation(
+        int missingActiveCellCount,
+        bool hasUnreadyActiveCell)
+    {
+        return missingActiveCellCount > 0 || hasUnreadyActiveCell;
+    }
+
+    /// <summary>
+    /// 既存 cell を同じ座標の有効 cell として再利用してよいかを返す。
+    /// </summary>
+    public static bool CanReuseExistingCellForCoordLookup(bool hasUnloadState)
+    {
+        return !hasUnloadState;
+    }
+
+    /// <summary>
+    /// Chebyshev 半径内に含まれる cell 数を返す。
+    /// </summary>
+    public static int CalculateCellCountInRadius(int radius)
+    {
+        var safeRadius = math.max(0, radius);
+        var sideLength = safeRadius * 2 + 1;
+
+        return sideLength * sideLength;
+    }
+
+    /// <summary>
+    /// Cell unload で今回進められる owned entity destroy cursor を返す。
+    /// </summary>
+    public static int CalculateNextOwnedEntityDestroyIndex(
+        int currentIndex,
+        int ownedEntityCount,
+        int frameBudget)
+    {
+        var safeOwnedEntityCount = math.max(0, ownedEntityCount);
+        var safeCurrentIndex = math.clamp(currentIndex, 0, safeOwnedEntityCount);
+        var safeFrameBudget = NormalizeFrameBudget(frameBudget);
+
+        return math.min(safeOwnedEntityCount, safeCurrentIndex + safeFrameBudget);
+    }
+
+    /// <summary>
+    /// Camera 表示範囲と交差する Cell を、static mesh の優先展開対象として判定する。
+    /// </summary>
+    public static bool ShouldPrioritizeStaticMeshSpawn(
+        float2 playerPosition,
+        int2 cellCoord,
+        float cellSize,
+        float visibleGroundRadius,
+        float visiblePadding)
+    {
+        var safeCellSize = math.max(0.0001f, math.abs(cellSize));
+        var halfCellSize = safeCellSize * 0.5f;
+        var cellCenter = new float2(
+            cellCoord.x * safeCellSize,
+            cellCoord.y * safeCellSize);
+        var distanceToCellAabb = CalculateDistanceToCellAabb(
+            playerPosition,
+            cellCenter,
+            halfCellSize);
+        var priorityRadius = math.max(0f, visibleGroundRadius) + math.max(0f, visiblePadding);
+
+        return distanceToCellAabb <= priorityRadius;
+    }
+
+    private static float CalculateDistanceToCellAabb(
+        float2 point,
+        float2 cellCenter,
+        float halfCellSize)
+    {
+        var outside = math.max(math.abs(point - cellCenter) - halfCellSize, float2.zero);
+
+        return math.length(outside);
+    }
+
+    /// <summary>
+    /// Cell が ActiveRadius 内かを返す。
+    /// </summary>
+    public static bool IsActiveCell(int2 center, int2 coord, int activeRadius)
+    {
+        return MapCellUtility.IsInsideCellRadius(center, coord, NormalizeActiveRadius(activeRadius));
+    }
+
+    /// <summary>
+    /// Cell を load / preload 対象にするかを返す。
+    /// </summary>
+    /// <remarks>
+    /// ActiveRadius 内は方向に関係なく必須。Preload 外周だけ、設定により後方を省略する。
+    /// </remarks>
+    public static bool ShouldLoadCell(
+        int2 center,
+        int2 coord,
+        int activeRadius,
+        int preloadRadius,
+        float2 preferredDirection,
+        byte preloadBehindCells,
+        float forwardPreloadDotThreshold)
+    {
+        if (IsActiveCell(center, coord, activeRadius))
+        {
+            return true;
+        }
+
+        var safePreloadRadius = NormalizePreloadRadius(activeRadius, preloadRadius);
+
+        if (!MapCellUtility.IsInsideCellRadius(center, coord, safePreloadRadius))
+        {
+            return false;
+        }
+
+        if (preloadBehindCells != 0 || math.lengthsq(preferredDirection) <= 0.0001f)
+        {
+            return true;
+        }
+
+        var delta = new float2(coord.x - center.x, coord.y - center.y);
+
+        if (math.lengthsq(delta) <= 0.0001f)
+        {
+            return true;
+        }
+
+        var normalizedDirection = math.normalize(preferredDirection);
+        var normalizedDelta = math.normalize(delta);
+        var threshold = math.clamp(forwardPreloadDotThreshold, -1f, 1f);
+
+        return math.dot(normalizedDirection, normalizedDelta) >= threshold;
+    }
+
+    /// <summary>
+    /// Cell を unload 対象にするかを返す。
+    /// </summary>
+    public static bool ShouldUnloadCell(int2 center, int2 coord, int unloadRadius)
+    {
+        return !MapCellUtility.IsInsideCellRadius(center, coord, math.max(0, unloadRadius));
+    }
+
+    /// <summary>
+    /// 小さい値ほど先に load する。ActiveRadius 内を外周 preload より優先する。
+    /// </summary>
+    public static int CalculateLoadPriority(int2 center, int2 coord, int activeRadius)
+    {
+        var distance = math.cmax(math.abs(coord - center));
+
+        if (distance <= NormalizeActiveRadius(activeRadius))
+        {
+            return distance;
+        }
+
+        return 1000 + distance;
+    }
+}
+
+/// <summary>
 /// Player を中心に Map Cell prefab の active set を維持する。
+///
+/// player が別 cell へ移動すると、新しい周辺 cell を instantiate し、範囲外 cell と所有 entity を破棄する。
 /// </summary>
 [UpdateBefore(typeof(StaticObstacleCollisionSystem))]
 public partial struct MapCellSystem : ISystem
 {
+    [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
         state.RequireForUpdate<PlayerTag>();
         state.RequireForUpdate<MapCellConfig>();
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
-        if (!TryGetPlayerPosition(ref state, out var playerPosition))
+        var velocityLookup = SystemAPI.GetComponentLookup<Velocity>(true);
+        var facingLookup = SystemAPI.GetComponentLookup<FacingDirection>(true);
+        var prefabTransformLookup = SystemAPI.GetComponentLookup<LocalTransform>(true);
+        var unloadStateLookup = SystemAPI.GetComponentLookup<MapCellUnloadState>(true);
+        var mapCellLookup = SystemAPI.GetComponentLookup<MapCell>(true);
+        var pcgLocalInstanceLookup = SystemAPI.GetBufferLookup<PCGStaticMeshLocalInstance>(true);
+        var navConfigLookup = SystemAPI.GetComponentLookup<MapNavConfig>(true);
+        var navCellDataLookup = SystemAPI.GetComponentLookup<MapNavCellData>(true);
+        var linkedEntityLookup = SystemAPI.GetBufferLookup<LinkedEntityGroup>(true);
+        var ownedEntityLookup = SystemAPI.GetBufferLookup<MapCellOwnedEntityElement>(true);
+
+        if (!TryGetPlayerState(
+                ref state,
+                velocityLookup,
+                facingLookup,
+                out var playerPosition,
+                out var preferredDirection))
         {
             return;
         }
 
         var entityCommandBuffer = new EntityCommandBuffer(Allocator.Temp);
+        var isWarmupActive = IsWarmupActive(ref state);
 
         foreach (var (config, cellPrefabs, configEntity) in
                  SystemAPI.Query<RefRO<MapCellConfig>, DynamicBuffer<MapCellPrefabElement>>()
@@ -386,88 +806,359 @@ public partial struct MapCellSystem : ISystem
             var centerCoord = MapCellUtility.CalculateCellCoord(
                 playerPosition,
                 config.ValueRO.CellSize);
-
-            UnloadFarCells(
+            var ownedDestroyBudget =
+                MapStreamingUtility.NormalizeFrameBudget(config.ValueRO.MaxOwnedEntityDestroysPerFrame);
+            var createBudget = MapStreamingUtility.NormalizeFrameBudget(config.ValueRO.MaxCellCreatesPerFrame);
+            var activeRadius = MapStreamingUtility.NormalizeActiveRadius(config.ValueRO.ActiveRadiusInCells);
+            var missingActiveCellCount = CountMissingActiveCells(
                 ref state,
-                ref entityCommandBuffer,
                 configEntity,
                 centerCoord,
-                config.ValueRO.LoadRadiusInCells);
+                activeRadius,
+                unloadStateLookup);
+            var hasUnreadyActiveCell = HasUnreadyActiveCells(
+                ref state,
+                configEntity,
+                centerCoord,
+                activeRadius,
+                mapCellLookup,
+                unloadStateLookup,
+                pcgLocalInstanceLookup,
+                navConfigLookup,
+                navCellDataLookup);
+
+            if (MapStreamingUtility.NeedsEmergencyActiveCellCreation(
+                    missingActiveCellCount,
+                    hasUnreadyActiveCell))
+            {
+                createBudget = MapStreamingUtility.CalculateEmergencyCreateBudget(
+                    createBudget,
+                    missingActiveCellCount);
+            }
+
+            BeginUnloadFarCells(
+                ref state,
+                ref entityCommandBuffer,
+                unloadStateLookup,
+                configEntity,
+                centerCoord,
+                config.ValueRO.UnloadRadiusInCells);
+            ProcessUnloadingCells(
+                ref state,
+                ref entityCommandBuffer,
+                linkedEntityLookup,
+                ownedEntityLookup,
+                configEntity,
+                ownedDestroyBudget);
             LoadMissingCells(
                 ref state,
                 ref entityCommandBuffer,
                 configEntity,
                 config.ValueRO,
                 cellPrefabs,
-                centerCoord);
+                prefabTransformLookup,
+                unloadStateLookup,
+                centerCoord,
+                isWarmupActive ? float2.zero : preferredDirection,
+                isWarmupActive ? (byte)1 : config.ValueRO.PreloadBehindCells,
+                createBudget);
         }
 
         entityCommandBuffer.Playback(state.EntityManager);
         entityCommandBuffer.Dispose();
     }
 
-    private bool TryGetPlayerPosition(ref SystemState state, out float3 playerPosition)
+    private bool TryGetPlayerState(
+        ref SystemState state,
+        ComponentLookup<Velocity> velocityLookup,
+        ComponentLookup<FacingDirection> facingLookup,
+        out float3 playerPosition,
+        out float2 preferredDirection)
     {
-        foreach (var transform in
+        foreach (var (transform, entity) in
                  SystemAPI.Query<RefRO<LocalTransform>>()
-                     .WithAll<PlayerTag>())
+                     .WithAll<PlayerTag>()
+                     .WithEntityAccess())
         {
             playerPosition = transform.ValueRO.Position;
+            preferredDirection = GetPreferredDirection(
+                velocityLookup,
+                facingLookup,
+                entity);
             return true;
         }
 
         playerPosition = float3.zero;
+        preferredDirection = float2.zero;
         return false;
     }
 
-    private static LocalTransform GetPrefabTransform(ref SystemState state, Entity prefabEntity)
+    private static float2 GetPreferredDirection(
+        ComponentLookup<Velocity> velocityLookup,
+        ComponentLookup<FacingDirection> facingLookup,
+        Entity playerEntity)
     {
-        if (state.EntityManager.HasComponent<LocalTransform>(prefabEntity))
+        if (velocityLookup.HasComponent(playerEntity))
         {
-            return state.EntityManager.GetComponentData<LocalTransform>(prefabEntity);
+            var velocity = velocityLookup[playerEntity].Value.xz;
+
+            if (math.lengthsq(velocity) > 0.0001f)
+            {
+                return math.normalize(velocity);
+            }
+        }
+
+        if (facingLookup.HasComponent(playerEntity))
+        {
+            var facing = facingLookup[playerEntity].Value;
+
+            if (math.lengthsq(facing) > 0.0001f)
+            {
+                return math.normalize(facing);
+            }
+        }
+
+        return float2.zero;
+    }
+
+    private bool IsWarmupActive(ref SystemState state)
+    {
+        foreach (var runtimeState in SystemAPI.Query<RefRO<StageRuntimeState>>())
+        {
+            if (runtimeState.ValueRO.Phase == StageRuntimePhase.Warmup)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static LocalTransform GetPrefabTransform(
+        ComponentLookup<LocalTransform> prefabTransformLookup,
+        Entity prefabEntity)
+    {
+        if (prefabTransformLookup.HasComponent(prefabEntity))
+        {
+            return prefabTransformLookup[prefabEntity];
         }
 
         return LocalTransform.Identity;
     }
 
-    private void UnloadFarCells(
+    private void BeginUnloadFarCells(
         ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
+        ComponentLookup<MapCellUnloadState> unloadStateLookup,
         Entity configEntity,
         int2 centerCoord,
-        int loadRadiusInCells)
+        int unloadRadiusInCells)
     {
         foreach (var (cell, cellEntity) in
                  SystemAPI.Query<RefRO<MapCell>>()
                      .WithEntityAccess())
         {
             if (cell.ValueRO.ConfigEntity != configEntity ||
-                MapCellUtility.IsInsideCellRadius(centerCoord, cell.ValueRO.Coord, loadRadiusInCells))
+                unloadStateLookup.HasComponent(cellEntity) ||
+                !MapStreamingUtility.ShouldUnloadCell(centerCoord, cell.ValueRO.Coord, unloadRadiusInCells))
             {
                 continue;
             }
 
-            DestroyOwnedEntities(ref state, ref entityCommandBuffer, cellEntity);
-            DestroyLinkedEntityGroup(ref state, ref entityCommandBuffer, cellEntity);
+            entityCommandBuffer.AddComponent(cellEntity, new MapCellUnloadState
+            {
+                Phase = 0,
+                NextOwnedEntityIndex = 0
+            });
         }
     }
 
-    private void DestroyOwnedEntities(
+    private void ProcessUnloadingCells(
         ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
-        Entity cellEntity)
+        BufferLookup<LinkedEntityGroup> linkedEntityLookup,
+        BufferLookup<MapCellOwnedEntityElement> ownedEntityLookup,
+        Entity configEntity,
+        int maxOwnedEntityDestroys)
     {
-        foreach (var (ownedEntity, entity) in
-                 SystemAPI.Query<RefRO<MapCellOwnedEntity>>()
+        var remainingOwnedEntityDestroys = MapStreamingUtility.NormalizeFrameBudget(maxOwnedEntityDestroys);
+
+        foreach (var (cell, unloadState, cellEntity) in
+                 SystemAPI.Query<RefRO<MapCell>, RefRW<MapCellUnloadState>>()
                      .WithEntityAccess())
         {
-            if (ownedEntity.ValueRO.CellEntity != cellEntity)
+            if (cell.ValueRO.ConfigEntity != configEntity)
             {
                 continue;
             }
 
-            DestroyLinkedEntityGroup(ref state, ref entityCommandBuffer, entity);
+            if (!ownedEntityLookup.HasBuffer(cellEntity))
+            {
+                DestroyLinkedEntityGroup(
+                    ref entityCommandBuffer,
+                    linkedEntityLookup,
+                    cellEntity);
+                continue;
+            }
+
+            var ownedEntities = ownedEntityLookup[cellEntity];
+            var ownedEntityIndex = math.clamp(
+                unloadState.ValueRO.NextOwnedEntityIndex,
+                0,
+                ownedEntities.Length);
+            var nextOwnedEntityIndex = MapStreamingUtility.CalculateNextOwnedEntityDestroyIndex(
+                ownedEntityIndex,
+                ownedEntities.Length,
+                remainingOwnedEntityDestroys);
+
+            while (ownedEntityIndex < nextOwnedEntityIndex)
+            {
+                DestroyLinkedEntityGroup(
+                    ref entityCommandBuffer,
+                    linkedEntityLookup,
+                    ownedEntities[ownedEntityIndex].Value);
+                ownedEntityIndex++;
+                remainingOwnedEntityDestroys--;
+            }
+
+            if (ownedEntityIndex >= ownedEntities.Length)
+            {
+                DestroyLinkedEntityGroup(
+                    ref entityCommandBuffer,
+                    linkedEntityLookup,
+                    cellEntity);
+            }
+            else
+            {
+                unloadState.ValueRW.NextOwnedEntityIndex = ownedEntityIndex;
+            }
+
+            if (remainingOwnedEntityDestroys <= 0)
+            {
+                return;
+            }
         }
+    }
+
+    private int CountMissingActiveCells(
+        ref SystemState state,
+        Entity configEntity,
+        int2 centerCoord,
+        int activeRadius,
+        ComponentLookup<MapCellUnloadState> unloadStateLookup)
+    {
+        var missingCellCount = 0;
+
+        for (var cellZ = centerCoord.y - activeRadius; cellZ <= centerCoord.y + activeRadius; cellZ++)
+        {
+            for (var cellX = centerCoord.x - activeRadius; cellX <= centerCoord.x + activeRadius; cellX++)
+            {
+                if (!TryGetCellEntity(
+                        ref state,
+                        configEntity,
+                        new int2(cellX, cellZ),
+                        unloadStateLookup,
+                        out _))
+                {
+                    missingCellCount++;
+                }
+            }
+        }
+
+        return missingCellCount;
+    }
+
+    private bool HasUnreadyActiveCells(
+        ref SystemState state,
+        Entity configEntity,
+        int2 centerCoord,
+        int activeRadius,
+        ComponentLookup<MapCell> mapCellLookup,
+        ComponentLookup<MapCellUnloadState> unloadStateLookup,
+        BufferLookup<PCGStaticMeshLocalInstance> pcgLocalInstanceLookup,
+        ComponentLookup<MapNavConfig> navConfigLookup,
+        ComponentLookup<MapNavCellData> navCellDataLookup)
+    {
+        for (var cellZ = centerCoord.y - activeRadius; cellZ <= centerCoord.y + activeRadius; cellZ++)
+        {
+            for (var cellX = centerCoord.x - activeRadius; cellX <= centerCoord.x + activeRadius; cellX++)
+            {
+                if (!TryGetCellEntity(
+                        ref state,
+                        configEntity,
+                        new int2(cellX, cellZ),
+                        unloadStateLookup,
+                        out var cellEntity) ||
+                    !IsCellReady(
+                        configEntity,
+                        cellEntity,
+                        mapCellLookup,
+                        unloadStateLookup,
+                        pcgLocalInstanceLookup,
+                        navConfigLookup,
+                        navCellDataLookup))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private bool TryGetCellEntity(
+        ref SystemState state,
+        Entity configEntity,
+        int2 coord,
+        ComponentLookup<MapCellUnloadState> unloadStateLookup,
+        out Entity cellEntity)
+    {
+        foreach (var (cell, entity) in
+                 SystemAPI.Query<RefRO<MapCell>>()
+                     .WithEntityAccess())
+        {
+            if (cell.ValueRO.ConfigEntity == configEntity &&
+                math.all(cell.ValueRO.Coord == coord) &&
+                MapStreamingUtility.CanReuseExistingCellForCoordLookup(
+                    unloadStateLookup.HasComponent(entity)))
+            {
+                cellEntity = entity;
+                return true;
+            }
+        }
+
+        cellEntity = Entity.Null;
+        return false;
+    }
+
+    private bool IsCellReady(
+        Entity configEntity,
+        Entity cellEntity,
+        ComponentLookup<MapCell> mapCellLookup,
+        ComponentLookup<MapCellUnloadState> unloadStateLookup,
+        BufferLookup<PCGStaticMeshLocalInstance> pcgLocalInstanceLookup,
+        ComponentLookup<MapNavConfig> navConfigLookup,
+        ComponentLookup<MapNavCellData> navCellDataLookup)
+    {
+        if (cellEntity == Entity.Null ||
+            unloadStateLookup.HasComponent(cellEntity))
+        {
+            return false;
+        }
+
+        if (mapCellLookup.HasComponent(cellEntity))
+        {
+            var cell = mapCellLookup[cellEntity];
+
+            if (pcgLocalInstanceLookup.HasBuffer(cellEntity) &&
+                cell.LocalStaticMeshSpawned == 0)
+            {
+                return false;
+            }
+        }
+
+        return !navConfigLookup.HasComponent(configEntity) ||
+               navCellDataLookup.HasComponent(cellEntity);
     }
 
     private void LoadMissingCells(
@@ -476,42 +1167,142 @@ public partial struct MapCellSystem : ISystem
         Entity configEntity,
         MapCellConfig config,
         DynamicBuffer<MapCellPrefabElement> cellPrefabs,
-        int2 centerCoord)
+        ComponentLookup<LocalTransform> prefabTransformLookup,
+        ComponentLookup<MapCellUnloadState> unloadStateLookup,
+        int2 centerCoord,
+        float2 preferredDirection,
+        byte preloadBehindCells,
+        int maxCellCreates)
     {
-        var loadRadiusInCells = math.max(0, config.LoadRadiusInCells);
+        var remainingCreates = MapStreamingUtility.NormalizeFrameBudget(maxCellCreates);
+        var activeRadius = MapStreamingUtility.NormalizeActiveRadius(config.ActiveRadiusInCells);
+        var preloadRadius = MapStreamingUtility.NormalizePreloadRadius(
+            activeRadius,
+            config.PreloadRadiusInCells);
 
-        for (var cellZ = centerCoord.y - loadRadiusInCells;
-             cellZ <= centerCoord.y + loadRadiusInCells;
-             cellZ++)
+        remainingCreates -= LoadMissingCellsByPriority(
+            ref state,
+            ref entityCommandBuffer,
+            configEntity,
+            config,
+            cellPrefabs,
+            prefabTransformLookup,
+            unloadStateLookup,
+            centerCoord,
+            float2.zero,
+            activeRadius,
+            activeRadius,
+            preloadBehindCells: 1,
+            includeActiveCells: true,
+            maxCellCreates: remainingCreates);
+
+        if (remainingCreates <= 0 || preloadRadius <= activeRadius)
         {
-            for (var cellX = centerCoord.x - loadRadiusInCells;
-                 cellX <= centerCoord.x + loadRadiusInCells;
-                 cellX++)
-            {
-                var cellCoord = new int2(cellX, cellZ);
-
-                if (HasCell(ref state, configEntity, cellCoord))
-                {
-                    continue;
-                }
-
-                CreateCell(
-                    ref state,
-                    ref entityCommandBuffer,
-                    configEntity,
-                    config,
-                    cellPrefabs,
-                    cellCoord);
-            }
+            return;
         }
+
+        LoadMissingCellsByPriority(
+            ref state,
+            ref entityCommandBuffer,
+            configEntity,
+            config,
+            cellPrefabs,
+            prefabTransformLookup,
+            unloadStateLookup,
+            centerCoord,
+            preferredDirection,
+            activeRadius,
+            preloadRadius,
+            preloadBehindCells,
+            includeActiveCells: false,
+            maxCellCreates: remainingCreates);
     }
 
-    private bool HasCell(ref SystemState state, Entity configEntity, int2 coord)
+    private int LoadMissingCellsByPriority(
+        ref SystemState state,
+        ref EntityCommandBuffer entityCommandBuffer,
+        Entity configEntity,
+        MapCellConfig config,
+        DynamicBuffer<MapCellPrefabElement> cellPrefabs,
+        ComponentLookup<LocalTransform> prefabTransformLookup,
+        ComponentLookup<MapCellUnloadState> unloadStateLookup,
+        int2 centerCoord,
+        float2 preferredDirection,
+        int activeRadius,
+        int preloadRadius,
+        byte preloadBehindCells,
+        bool includeActiveCells,
+        int maxCellCreates)
     {
-        foreach (var cell in SystemAPI.Query<RefRO<MapCell>>())
+        var createdCellCount = 0;
+        var maxPriority = 1000 + preloadRadius;
+        var firstPriority = includeActiveCells ? 0 : 1000 + activeRadius + 1;
+
+        for (var priority = firstPriority; priority <= maxPriority; priority++)
+        {
+            if (priority > activeRadius && priority < 1000)
+            {
+                priority = 1000 + activeRadius + 1;
+            }
+
+            for (var cellZ = centerCoord.y - preloadRadius;
+                 cellZ <= centerCoord.y + preloadRadius;
+                 cellZ++)
+            {
+                for (var cellX = centerCoord.x - preloadRadius;
+                     cellX <= centerCoord.x + preloadRadius;
+                     cellX++)
+                {
+                    var cellCoord = new int2(cellX, cellZ);
+
+                    if (MapStreamingUtility.CalculateLoadPriority(centerCoord, cellCoord, activeRadius) != priority ||
+                        !MapStreamingUtility.ShouldLoadCell(
+                            centerCoord,
+                            cellCoord,
+                            activeRadius,
+                            preloadRadius,
+                            preferredDirection,
+                            preloadBehindCells,
+                            config.ForwardPreloadDotThreshold) ||
+                        HasAvailableCell(ref state, configEntity, cellCoord, unloadStateLookup))
+                    {
+                        continue;
+                    }
+
+                    CreateCell(
+                        ref entityCommandBuffer,
+                        configEntity,
+                        config,
+                        cellPrefabs,
+                        prefabTransformLookup,
+                        cellCoord);
+                    createdCellCount++;
+
+                    if (createdCellCount >= maxCellCreates)
+                    {
+                        return createdCellCount;
+                    }
+                }
+            }
+        }
+
+        return createdCellCount;
+    }
+
+    private bool HasAvailableCell(
+        ref SystemState state,
+        Entity configEntity,
+        int2 coord,
+        ComponentLookup<MapCellUnloadState> unloadStateLookup)
+    {
+        foreach (var (cell, entity) in
+                 SystemAPI.Query<RefRO<MapCell>>()
+                     .WithEntityAccess())
         {
             if (cell.ValueRO.ConfigEntity == configEntity &&
-                math.all(cell.ValueRO.Coord == coord))
+                math.all(cell.ValueRO.Coord == coord) &&
+                MapStreamingUtility.CanReuseExistingCellForCoordLookup(
+                    unloadStateLookup.HasComponent(entity)))
             {
                 return true;
             }
@@ -521,17 +1312,17 @@ public partial struct MapCellSystem : ISystem
     }
 
     private void DestroyLinkedEntityGroup(
-        ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
+        BufferLookup<LinkedEntityGroup> linkedEntityLookup,
         Entity rootEntity)
     {
-        if (!SystemAPI.HasBuffer<LinkedEntityGroup>(rootEntity))
+        if (!linkedEntityLookup.HasBuffer(rootEntity))
         {
             entityCommandBuffer.DestroyEntity(rootEntity);
             return;
         }
 
-        var linkedEntities = SystemAPI.GetBuffer<LinkedEntityGroup>(rootEntity);
+        var linkedEntities = linkedEntityLookup[rootEntity];
 
         for (var linkedEntityIndex = 0; linkedEntityIndex < linkedEntities.Length; linkedEntityIndex++)
         {
@@ -540,11 +1331,11 @@ public partial struct MapCellSystem : ISystem
     }
 
     private static void CreateCell(
-        ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
         Entity configEntity,
         MapCellConfig config,
         DynamicBuffer<MapCellPrefabElement> cellPrefabs,
+        ComponentLookup<LocalTransform> prefabTransformLookup,
         int2 cellCoord)
     {
         var cellPrefab = SelectCellPrefab(cellPrefabs, config.WorldSeed, cellCoord);
@@ -554,7 +1345,7 @@ public partial struct MapCellSystem : ISystem
             return;
         }
 
-        var prefabTransform = GetPrefabTransform(ref state, cellPrefab);
+        var prefabTransform = GetPrefabTransform(prefabTransformLookup, cellPrefab);
         var cellEntity = entityCommandBuffer.Instantiate(cellPrefab);
 
         entityCommandBuffer.SetComponent(
@@ -564,14 +1355,16 @@ public partial struct MapCellSystem : ISystem
                 config.CellSize,
                 config.GroundY,
                 prefabTransform));
-            entityCommandBuffer.AddComponent(cellEntity, new MapCell
-            {
-                ConfigEntity = configEntity,
-                Coord = cellCoord,
-                LocalStaticMeshSpawned = 0,
-                NavBuildDelayFrames = 0,
-                MonstersSpawned = 0
-            });
+        entityCommandBuffer.AddComponent(cellEntity, new MapCell
+        {
+            ConfigEntity = configEntity,
+            Coord = cellCoord,
+            LocalStaticMeshSpawned = 0,
+            NavBuildDelayFrames = 0,
+            MonstersSpawned = 0,
+            LocalStaticMeshSpawnCursor = 0
+        });
+        entityCommandBuffer.AddBuffer<MapCellOwnedEntityElement>(cellEntity);
     }
 
     private static Entity SelectCellPrefab(
@@ -616,5 +1409,169 @@ public partial struct MapCellSystem : ISystem
         }
 
         return lastPositivePrefab;
+    }
+}
+
+/// <summary>
+/// Stage 開始時に、必須 map streaming 範囲が完成するまで gameplay phase への遷移を遅らせる。
+/// </summary>
+[UpdateAfter(typeof(MapNavBuildSystem))]
+[UpdateBefore(typeof(TimedSurvivalStageSystem))]
+public partial struct MapStreamingWarmupSystem : ISystem
+{
+    [BurstCompile]
+    public void OnCreate(ref SystemState state)
+    {
+        state.RequireForUpdate<PlayerTag>();
+        state.RequireForUpdate<MapCellConfig>();
+        state.RequireForUpdate<StageRuntimeState>();
+    }
+
+    [BurstCompile]
+    public void OnUpdate(ref SystemState state)
+    {
+        if (!TryGetPlayerPosition(ref state, out var playerPosition))
+        {
+            return;
+        }
+
+        var navConfigLookup = SystemAPI.GetComponentLookup<MapNavConfig>(true);
+        var pcgLocalInstanceLookup = SystemAPI.GetBufferLookup<PCGStaticMeshLocalInstance>(true);
+        var navCellDataLookup = SystemAPI.GetComponentLookup<MapNavCellData>(true);
+        var unloadStateLookup = SystemAPI.GetComponentLookup<MapCellUnloadState>(true);
+
+        foreach (var (config, runtimeState, configEntity) in
+                 SystemAPI.Query<RefRO<MapCellConfig>, RefRW<StageRuntimeState>>()
+                     .WithEntityAccess())
+        {
+            if (runtimeState.ValueRO.Phase != StageRuntimePhase.Warmup)
+            {
+                continue;
+            }
+
+            var centerCoord = MapCellUtility.CalculateCellCoord(
+                playerPosition,
+                config.ValueRO.CellSize);
+
+            if (!IsStreamingReady(
+                    ref state,
+                    configEntity,
+                    config.ValueRO,
+                    centerCoord,
+                    navConfigLookup,
+                    pcgLocalInstanceLookup,
+                    navCellDataLookup,
+                    unloadStateLookup))
+            {
+                continue;
+            }
+
+            runtimeState.ValueRW.Phase = StageRuntimePhase.Gameplay;
+        }
+    }
+
+    private bool TryGetPlayerPosition(ref SystemState state, out float3 playerPosition)
+    {
+        foreach (var transform in
+                 SystemAPI.Query<RefRO<LocalTransform>>()
+                     .WithAll<PlayerTag>())
+        {
+            playerPosition = transform.ValueRO.Position;
+            return true;
+        }
+
+        playerPosition = float3.zero;
+        return false;
+    }
+
+    private bool IsStreamingReady(
+        ref SystemState state,
+        Entity configEntity,
+        MapCellConfig config,
+        int2 centerCoord,
+        ComponentLookup<MapNavConfig> navConfigLookup,
+        BufferLookup<PCGStaticMeshLocalInstance> pcgLocalInstanceLookup,
+        ComponentLookup<MapNavCellData> navCellDataLookup,
+        ComponentLookup<MapCellUnloadState> unloadStateLookup)
+    {
+        var activeRadius = MapStreamingUtility.NormalizeActiveRadius(config.ActiveRadiusInCells);
+        var preloadRadius = MapStreamingUtility.NormalizePreloadRadius(
+            activeRadius,
+            config.PreloadRadiusInCells);
+
+        for (var cellZ = centerCoord.y - preloadRadius; cellZ <= centerCoord.y + preloadRadius; cellZ++)
+        {
+            for (var cellX = centerCoord.x - preloadRadius; cellX <= centerCoord.x + preloadRadius; cellX++)
+            {
+                var cellCoord = new int2(cellX, cellZ);
+
+                if (!MapStreamingUtility.ShouldLoadCell(
+                        centerCoord,
+                        cellCoord,
+                        activeRadius,
+                        preloadRadius,
+                        preferredDirection: float2.zero,
+                        preloadBehindCells: 1,
+                        forwardPreloadDotThreshold: config.ForwardPreloadDotThreshold))
+                {
+                    continue;
+                }
+
+                if (!TryGetReadyCell(
+                        ref state,
+                        configEntity,
+                        cellCoord,
+                        navConfigLookup,
+                        pcgLocalInstanceLookup,
+                        navCellDataLookup,
+                        unloadStateLookup))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private bool TryGetReadyCell(
+        ref SystemState state,
+        Entity configEntity,
+        int2 cellCoord,
+        ComponentLookup<MapNavConfig> navConfigLookup,
+        BufferLookup<PCGStaticMeshLocalInstance> pcgLocalInstanceLookup,
+        ComponentLookup<MapNavCellData> navCellDataLookup,
+        ComponentLookup<MapCellUnloadState> unloadStateLookup)
+    {
+        var needsNavBuild = navConfigLookup.HasComponent(configEntity);
+
+        foreach (var (cell, cellEntity) in
+                 SystemAPI.Query<RefRO<MapCell>>()
+                     .WithEntityAccess())
+        {
+            if (cell.ValueRO.ConfigEntity != configEntity ||
+                !math.all(cell.ValueRO.Coord == cellCoord) ||
+                !MapStreamingUtility.CanReuseExistingCellForCoordLookup(
+                    unloadStateLookup.HasComponent(cellEntity)))
+            {
+                continue;
+            }
+
+            if (pcgLocalInstanceLookup.HasBuffer(cellEntity) &&
+                cell.ValueRO.LocalStaticMeshSpawned == 0)
+            {
+                return false;
+            }
+
+            if (needsNavBuild &&
+                !navCellDataLookup.HasComponent(cellEntity))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        return false;
     }
 }

@@ -109,6 +109,65 @@ public sealed class MonsterSpawnDirectorTests
     }
 
     [Test]
+    public void CalculateCameraOutsideSpawnDistanceRangeUsesEntrySeconds()
+    {
+        MonsterSpawnDirectorUtility.CalculateCameraOutsideSpawnDistanceRange(
+            visibleGroundRadius: 23.5f,
+            expectedMoveSpeed: 2.5f,
+            minEnterViewSeconds: 1f,
+            maxEnterViewSeconds: 2f,
+            out var minDistance,
+            out var maxDistance);
+
+        Assert.AreEqual(26f, minDistance, 0.0001f);
+        Assert.AreEqual(28.5f, maxDistance, 0.0001f);
+    }
+
+    [Test]
+    public void CalculateCameraOutsideSpawnDistanceRangeKeepsValidOrder()
+    {
+        MonsterSpawnDirectorUtility.CalculateCameraOutsideSpawnDistanceRange(
+            visibleGroundRadius: 20f,
+            expectedMoveSpeed: 0f,
+            minEnterViewSeconds: 2f,
+            maxEnterViewSeconds: 1f,
+            out var minDistance,
+            out var maxDistance);
+
+        Assert.Greater(maxDistance, minDistance);
+    }
+
+    [Test]
+    public void CalculateCameraOutsideSpawnDistanceRangeUsesDirectionSpecificScreenEdge()
+    {
+        var cameraBounds = new MonsterSpawnCameraBounds
+        {
+            VisibleGroundRadius = 20f,
+            MinSpawnDistanceFromPlayer = 22f,
+            MaxSpawnDistanceFromPlayer = 25f,
+            GroundOffset0 = new float2(10f, 0f),
+            GroundOffset1 = new float2(-20f, 0f),
+            GroundOffset2 = new float2(0f, 12f)
+        };
+
+        MonsterSpawnDirectorUtility.CalculateCameraOutsideSpawnDistanceRange(
+            cameraBounds,
+            new float2(1f, 0f),
+            out var rightMinDistance,
+            out var rightMaxDistance);
+        MonsterSpawnDirectorUtility.CalculateCameraOutsideSpawnDistanceRange(
+            cameraBounds,
+            new float2(-1f, 0f),
+            out var leftMinDistance,
+            out var leftMaxDistance);
+
+        Assert.AreEqual(12f, rightMinDistance, 0.0001f);
+        Assert.AreEqual(15f, rightMaxDistance, 0.0001f);
+        Assert.AreEqual(22f, leftMinDistance, 0.0001f);
+        Assert.AreEqual(25f, leftMaxDistance, 0.0001f);
+    }
+
+    [Test]
     public void CalculateGroundedSpawnPositionPlacesGroundSensorBottomOnGround()
     {
         var groundPosition = new float3(12f, 0f, -8f);
@@ -267,6 +326,35 @@ public sealed class MonsterSpawnDirectorTests
         StringAssert.Contains("CountAliveMonsterDensity", source);
         StringAssert.Contains("RecycleDistantMonstersForNearbyDensity", source);
         StringAssert.Contains("CalculateSpawnCountForNearbyDensity", source);
+    }
+
+    [Test]
+    public void MonsterSpawnDirectorMaintainsNearbyDensityOutsideTimedSpawnInterval()
+    {
+        var source = System.IO.File.ReadAllText("Assets/Scripts/Monster/MonsterSpawnDirectorAuthoring.cs");
+
+        StringAssert.Contains("ShouldRunNearbyDensityMaintenance", source);
+        StringAssert.Contains("if (!shouldMaintainNearbyDensity &&", source);
+        StringAssert.Contains("MaintainNearbyMonsterDensity(", source);
+    }
+
+    [Test]
+    public void MonsterSpawnDirectorDefaultNearbyDensityKeepsAtLeastTwoHundredMonsters()
+    {
+        var source = System.IO.File.ReadAllText("Assets/Scripts/Monster/MonsterSpawnDirectorAuthoring.cs");
+
+        StringAssert.Contains("private int NearbyMonsterLowThreshold = 200", source);
+        StringAssert.Contains("private int NearbyMonsterTargetCount = 240", source);
+    }
+
+    [Test]
+    public void DebugSceneUpdatesMonsterSpawnRingFromMainCamera()
+    {
+        var scene = System.IO.File.ReadAllText("Assets/Scenes/DebugScene.unity");
+
+        StringAssert.Contains("Assembly-CSharp::MonsterSpawnCameraBoundsUpdater", scene);
+        StringAssert.Contains("MinEnterViewSeconds: 1", scene);
+        StringAssert.Contains("MaxEnterViewSeconds: 2", scene);
     }
 
     [Test]

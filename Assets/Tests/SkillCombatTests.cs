@@ -137,6 +137,39 @@ public sealed class SkillCombatTests
     }
 
     [Test]
+    public void StartCooltimeClearsCastingOnlyFlags()
+    {
+        var state = new AttackSkillState
+        {
+            Timer = 0.5f,
+            CastElapsedTime = 0.25f,
+            DamageApplyCount = 1,
+            DamageApplyTotalCount = 1,
+            IsTriggered = 1,
+            IsCasting = 1,
+            IsCooltime = 0,
+            DamageApplied = 1,
+            SfxPlayed = 1,
+            VfxSpawned = 1,
+            StartedThisFrame = 1
+        };
+
+        SkillSystemUtility.StartCooltime(ref state);
+
+        Assert.AreEqual(0f, state.Timer);
+        Assert.AreEqual(0f, state.CastElapsedTime);
+        Assert.AreEqual(0, state.DamageApplyCount);
+        Assert.AreEqual(0, state.DamageApplyTotalCount);
+        Assert.AreEqual(0, state.IsTriggered);
+        Assert.AreEqual(0, state.IsCasting);
+        Assert.AreEqual(1, state.IsCooltime);
+        Assert.AreEqual(0, state.DamageApplied);
+        Assert.AreEqual(0, state.SfxPlayed);
+        Assert.AreEqual(0, state.VfxSpawned);
+        Assert.AreEqual(0, state.StartedThisFrame);
+    }
+
+    [Test]
     public void SkillVfxScaleUsesDisplayRadiusWhenConfigured()
     {
         var timing = new AttackSkillTimingConfig
@@ -337,6 +370,68 @@ public sealed class SkillCombatTests
     }
 
     [Test]
+    public void DebuffMathCalculatesParalyzeRecoveryCurve()
+    {
+        var paralyze = DebuffMath.CreateActiveDebuff(new SkillDebuffSpec
+        {
+            DebuffId = 12,
+            Kind = DebuffKind.Paralyze,
+            Chance = 1f,
+            Duration = 4f,
+            Value0 = 0.25f,
+            Value1 = 2f
+        });
+
+        Assert.AreEqual(0f, DebuffMath.CalculateParalyzeMoveSpeedMultiplier(paralyze), 0.0001f);
+
+        paralyze.RemainingTime = 3f;
+        Assert.AreEqual(0f, DebuffMath.CalculateParalyzeMoveSpeedMultiplier(paralyze), 0.0001f);
+
+        paralyze.RemainingTime = 2f;
+        var recoveringMultiplier = DebuffMath.CalculateParalyzeMoveSpeedMultiplier(paralyze);
+
+        Assert.Greater(recoveringMultiplier, 0f);
+        Assert.Less(recoveringMultiplier, 1f);
+
+        paralyze.RemainingTime = 0f;
+        Assert.AreEqual(1f, DebuffMath.CalculateParalyzeMoveSpeedMultiplier(paralyze), 0.0001f);
+    }
+
+    [Test]
+    public void DebuffMathUsesStrongestParalyzeRuntimeMultiplier()
+    {
+        var runtime = new DebuffRuntimeState();
+        var weakParalyze = DebuffMath.CreateActiveDebuff(new SkillDebuffSpec
+        {
+            DebuffId = 13,
+            Kind = DebuffKind.Paralyze,
+            Chance = 1f,
+            Duration = 4f,
+            Value0 = 0f,
+            Value1 = 1f
+        });
+        var strongParalyze = DebuffMath.CreateActiveDebuff(new SkillDebuffSpec
+        {
+            DebuffId = 14,
+            Kind = DebuffKind.Paralyze,
+            Chance = 1f,
+            Duration = 4f,
+            Value0 = 0.5f,
+            Value1 = 2f
+        });
+
+        weakParalyze.RemainingTime = 2f;
+        strongParalyze.RemainingTime = 3f;
+        runtime.ActiveDebuffs.Add(weakParalyze);
+        runtime.ActiveDebuffs.Add(strongParalyze);
+
+        Assert.AreEqual(
+            DebuffMath.CalculateParalyzeMoveSpeedMultiplier(strongParalyze),
+            DebuffMath.CalculateParalyzeMoveSpeedMultiplier(runtime),
+            0.0001f);
+    }
+
+    [Test]
     public void DebuffStrengthComparisonUsesDebuffKindRules()
     {
         var currentSlow = DebuffMath.CreateActiveDebuff(new SkillDebuffSpec
@@ -403,8 +498,15 @@ public sealed class SkillCombatTests
     public void SkillSystemsOperateOnEquippedSlotsAndDirectHealth()
     {
         var source = File.ReadAllText("Assets/Scripts/Skills/SkillSystems.cs");
+        var logicStartIndex = source.IndexOf("public partial struct SkillLogicSystem", System.StringComparison.Ordinal);
+        var completionStartIndex = source.IndexOf("public partial struct SkillCastCompletionSystem", System.StringComparison.Ordinal);
         var recordIndex = source.IndexOf("SkillAttackRangeDebugEvents.Record");
         var hitLoopIndex = source.IndexOf("for (var monsterIndex");
+
+        Assert.GreaterOrEqual(logicStartIndex, 0);
+        Assert.Greater(completionStartIndex, logicStartIndex);
+
+        var logicSource = source.Substring(logicStartIndex, completionStartIndex - logicStartIndex);
 
         StringAssert.Contains("EquippedSkillTag", source);
         StringAssert.Contains("AttackSkillSlotTag", source);
@@ -424,8 +526,8 @@ public sealed class SkillCombatTests
         StringAssert.Contains("MonsterTag", source);
         Assert.GreaterOrEqual(recordIndex, 0);
         Assert.Greater(hitLoopIndex, recordIndex);
-        Assert.IsFalse(source.Contains("EntityCommandBuffer"));
-        Assert.IsFalse(source.Contains("Request"));
+        Assert.IsFalse(logicSource.Contains("EntityCommandBuffer"));
+        Assert.IsFalse(logicSource.Contains("Request"));
     }
 
     [Test]
@@ -668,6 +770,8 @@ public sealed class SkillCombatTests
         var skillSource = File.ReadAllText("Assets/Scripts/Skills/SkillSystems.cs");
         var authoringSource = File.ReadAllText("Assets/Scripts/Skills/InstantImpactSkillAuthoring.cs");
         var componentSource = File.ReadAllText("Assets/Scripts/Skills/SkillComponents.cs");
+        var movementSource = File.ReadAllText("Assets/Scripts/Movement/MovementSystem.cs");
+        var mapNavSource = File.ReadAllText("Assets/Scripts/Map/MapNavAuthoring.cs");
 
         StringAssert.Contains("case 1:", skillSource);
         StringAssert.Contains("case 2:", skillSource);
@@ -687,5 +791,27 @@ public sealed class SkillCombatTests
         StringAssert.Contains("OnHitDebuffs", authoringSource);
         StringAssert.Contains("DebuffKind.MoveSpeedDown", componentSource);
         StringAssert.Contains("DebuffKind.DamageOverTime", componentSource);
+        StringAssert.Contains("public struct FreezeTag", componentSource);
+        StringAssert.Contains("public struct FreezeComponent", componentSource);
+        var freezeTagStart = componentSource.IndexOf("public struct FreezeTag");
+        var freezeComponentStart = componentSource.IndexOf("public struct FreezeComponent");
+        var freezeTagBlock = componentSource.Substring(
+            freezeTagStart,
+            freezeComponentStart - freezeTagStart);
+        var freezeComponentBlock = componentSource.Substring(freezeComponentStart);
+
+        Assert.IsFalse(freezeTagBlock.Contains("ShouldFreezeTime"));
+        Assert.IsFalse(freezeTagBlock.Contains("Timer"));
+        StringAssert.Contains("public float ShouldFreezeTime", freezeComponentBlock);
+        StringAssert.Contains("public float Timer", freezeComponentBlock);
+        StringAssert.Contains("FreezeSystem", skillSource);
+        StringAssert.Contains("FreezeClearSystem", skillSource);
+        StringAssert.Contains("ParalyzeSystem", skillSource);
+        StringAssert.Contains("RemoveComponent<Velocity>", skillSource);
+        StringAssert.Contains("AddComponent(entity, freezeComponent.ValueRO.RestoreVelocity)", skillSource);
+        Assert.IsFalse(componentSource.Contains("IsMovementLocked"));
+        Assert.IsFalse(componentSource.Contains("IsActionLocked"));
+        Assert.IsFalse(movementSource.Contains("IsMovementLocked"));
+        Assert.IsFalse(mapNavSource.Contains("IsMovementLocked"));
     }
 }

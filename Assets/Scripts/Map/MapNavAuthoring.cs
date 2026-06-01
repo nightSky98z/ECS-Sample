@@ -1,3 +1,4 @@
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
@@ -649,17 +650,31 @@ public static class MapNavUtility
 [UpdateBefore(typeof(FlowFieldSystem))]
 public partial struct MapNavBuildSystem : ISystem
 {
+    [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
         state.RequireForUpdate<MapCell>();
         state.RequireForUpdate<MapNavConfig>();
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
         var entityCommandBuffer = new EntityCommandBuffer(Allocator.Temp);
+        var pcgLocalInstanceLookup = SystemAPI.GetBufferLookup<PCGStaticMeshLocalInstance>(true);
+        var navConfigLookup = SystemAPI.GetComponentLookup<MapNavConfig>(true);
+        var mapCellConfigLookup = SystemAPI.GetComponentLookup<MapCellConfig>(true);
+        var navTileLookup = SystemAPI.GetBufferLookup<MapNavTile>(true);
+        var navCellDataLookup = SystemAPI.GetComponentLookup<MapNavCellData>(true);
 
-        BuildMissingNavCells(ref state, ref entityCommandBuffer);
+        BuildMissingNavCells(
+            ref state,
+            ref entityCommandBuffer,
+            pcgLocalInstanceLookup,
+            navConfigLookup,
+            mapCellConfigLookup,
+            navTileLookup,
+            navCellDataLookup);
 
         entityCommandBuffer.Playback(state.EntityManager);
         entityCommandBuffer.Dispose();
@@ -667,9 +682,16 @@ public partial struct MapNavBuildSystem : ISystem
 
     private void BuildMissingNavCells(
         ref SystemState state,
-        ref EntityCommandBuffer entityCommandBuffer)
+        ref EntityCommandBuffer entityCommandBuffer,
+        BufferLookup<PCGStaticMeshLocalInstance> pcgLocalInstanceLookup,
+        ComponentLookup<MapNavConfig> navConfigLookup,
+        ComponentLookup<MapCellConfig> mapCellConfigLookup,
+        BufferLookup<MapNavTile> navTileLookup,
+        ComponentLookup<MapNavCellData> navCellDataLookup)
     {
         var obstacleAabbs = new NativeList<Aabb>(Allocator.Temp);
+        var builtCellCount = 0;
+        var maxNavBuildCells = 1;
 
         CollectStaticObstacleAabbs(ref state, obstacleAabbs);
 
@@ -678,17 +700,27 @@ public partial struct MapNavBuildSystem : ISystem
                      .WithNone<MapNavCellData>()
                      .WithEntityAccess())
         {
-            if (ShouldDelayNavBuild(ref state, cellEntity, cell))
+            if (ShouldDelayNavBuild(pcgLocalInstanceLookup, cellEntity, cell))
             {
                 continue;
             }
 
-            if (!state.EntityManager.HasComponent<MapNavConfig>(cell.ValueRO.ConfigEntity))
+            if (!navConfigLookup.HasComponent(cell.ValueRO.ConfigEntity))
             {
                 continue;
             }
 
-            var config = state.EntityManager.GetComponentData<MapNavConfig>(cell.ValueRO.ConfigEntity);
+            var config = navConfigLookup[cell.ValueRO.ConfigEntity];
+            maxNavBuildCells = MapStreamingUtility.NormalizeFrameBudget(
+                mapCellConfigLookup.HasComponent(cell.ValueRO.ConfigEntity)
+                    ? mapCellConfigLookup[cell.ValueRO.ConfigEntity].MaxNavBuildCellsPerFrame
+                    : 1);
+
+            if (builtCellCount >= maxNavBuildCells)
+            {
+                break;
+            }
+
             var gridSize = MapNavUtility.NormalizeGridSize(config.GridSize);
             var tileSize = MapNavUtility.NormalizeTileSize(config.TileSize);
             var agentRadius = MapNavUtility.NormalizeAgentRadius(config.AgentRadius);
@@ -703,15 +735,15 @@ public partial struct MapNavBuildSystem : ISystem
                     cellTransform.ValueRO.Position,
                     gridSize,
                     tileSize),
-                Version = GetNextVersion(ref state, cellEntity)
+                Version = GetNextVersion(navCellDataLookup, cellEntity)
             };
-            var navTiles = state.EntityManager.HasBuffer<MapNavTile>(cellEntity)
+            var navTiles = navTileLookup.HasBuffer(cellEntity)
                 ? entityCommandBuffer.SetBuffer<MapNavTile>(cellEntity)
                 : entityCommandBuffer.AddBuffer<MapNavTile>(cellEntity);
 
             BuildWalkableTiles(navCell, obstacleAabbs, navTiles);
 
-            if (state.EntityManager.HasComponent<MapNavCellData>(cellEntity))
+            if (navCellDataLookup.HasComponent(cellEntity))
             {
                 entityCommandBuffer.SetComponent(cellEntity, navCell);
             }
@@ -719,17 +751,19 @@ public partial struct MapNavBuildSystem : ISystem
             {
                 entityCommandBuffer.AddComponent(cellEntity, navCell);
             }
+
+            builtCellCount++;
         }
 
         obstacleAabbs.Dispose();
     }
 
     private static bool ShouldDelayNavBuild(
-        ref SystemState state,
+        BufferLookup<PCGStaticMeshLocalInstance> pcgLocalInstanceLookup,
         Entity cellEntity,
         RefRW<MapCell> cell)
     {
-        if (state.EntityManager.HasBuffer<PCGStaticMeshLocalInstance>(cellEntity) &&
+        if (pcgLocalInstanceLookup.HasBuffer(cellEntity) &&
             cell.ValueRO.LocalStaticMeshSpawned == 0)
         {
             return true;
@@ -763,14 +797,16 @@ public partial struct MapNavBuildSystem : ISystem
         }
     }
 
-    private static int GetNextVersion(ref SystemState state, Entity cellEntity)
+    private static int GetNextVersion(
+        ComponentLookup<MapNavCellData> navCellDataLookup,
+        Entity cellEntity)
     {
-        if (!state.EntityManager.HasComponent<MapNavCellData>(cellEntity))
+        if (!navCellDataLookup.HasComponent(cellEntity))
         {
             return 1;
         }
 
-        return state.EntityManager.GetComponentData<MapNavCellData>(cellEntity).Version + 1;
+        return navCellDataLookup[cellEntity].Version + 1;
     }
 
     private static void BuildWalkableTiles(
@@ -866,12 +902,14 @@ public partial struct MapNavBuildSystem : ISystem
 [UpdateBefore(typeof(MonsterPathFollowSystem))]
 public partial struct FlowFieldSystem : ISystem
 {
+    [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
         state.RequireForUpdate<PlayerTag>();
         state.RequireForUpdate<MapNavCellData>();
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
         if (!TryGetPlayerPosition(ref state, out var playerPosition))
@@ -880,6 +918,7 @@ public partial struct FlowFieldSystem : ISystem
         }
 
         var entityCommandBuffer = new EntityCommandBuffer(Allocator.Temp);
+        var flowStateLookup = SystemAPI.GetComponentLookup<MapNavFlowState>(true);
 
         foreach (var (navCell, navTiles, cellEntity) in
                  SystemAPI.Query<RefRO<MapNavCellData>, DynamicBuffer<MapNavTile>>()
@@ -900,7 +939,7 @@ public partial struct FlowFieldSystem : ISystem
                     out var goalTile))
             {
                 if (HasCurrentFlowState(
-                        ref state,
+                        flowStateLookup,
                         cellEntity,
                         MapNavUtility.NoReachableGoalTile,
                         navCell.ValueRO.Version,
@@ -911,8 +950,8 @@ public partial struct FlowFieldSystem : ISystem
 
                 MapNavUtility.ClearFlowField(navTiles);
                 SetFlowState(
-                    ref state,
                     ref entityCommandBuffer,
+                    flowStateLookup,
                     cellEntity,
                     MapNavUtility.NoReachableGoalTile,
                     float2.zero,
@@ -930,7 +969,7 @@ public partial struct FlowFieldSystem : ISystem
                     navCell.ValueRO.TileSize);
 
             if (HasCurrentFlowState(
-                    ref state,
+                    flowStateLookup,
                     cellEntity,
                     goalTile,
                     navCell.ValueRO.Version,
@@ -942,8 +981,8 @@ public partial struct FlowFieldSystem : ISystem
                     goalTile,
                     goalDirection);
                 SetFlowState(
-                    ref state,
                     ref entityCommandBuffer,
+                    flowStateLookup,
                     cellEntity,
                     goalTile,
                     goalDirection,
@@ -962,8 +1001,8 @@ public partial struct FlowFieldSystem : ISystem
                 goalTile,
                 goalDirection);
             SetFlowState(
-                ref state,
                 ref entityCommandBuffer,
+                flowStateLookup,
                 cellEntity,
                 goalTile,
                 goalDirection,
@@ -990,18 +1029,18 @@ public partial struct FlowFieldSystem : ISystem
     }
 
     private bool HasCurrentFlowState(
-        ref SystemState state,
+        ComponentLookup<MapNavFlowState> flowStateLookup,
         Entity cellEntity,
         int2 goalTile,
         int version,
         byte hasReachableGoal)
     {
-        if (!state.EntityManager.HasComponent<MapNavFlowState>(cellEntity))
+        if (!flowStateLookup.HasComponent(cellEntity))
         {
             return false;
         }
 
-        var flowState = state.EntityManager.GetComponentData<MapNavFlowState>(cellEntity);
+        var flowState = flowStateLookup[cellEntity];
 
         return flowState.Version == version &&
                flowState.HasReachableGoal == hasReachableGoal &&
@@ -1009,8 +1048,8 @@ public partial struct FlowFieldSystem : ISystem
     }
 
     private static void SetFlowState(
-        ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
+        ComponentLookup<MapNavFlowState> flowStateLookup,
         Entity cellEntity,
         int2 goalTile,
         float2 goalDirection,
@@ -1025,7 +1064,7 @@ public partial struct FlowFieldSystem : ISystem
             HasReachableGoal = hasReachableGoal
         };
 
-        if (state.EntityManager.HasComponent<MapNavFlowState>(cellEntity))
+        if (flowStateLookup.HasComponent(cellEntity))
         {
             entityCommandBuffer.SetComponent(cellEntity, flowState);
             return;
@@ -1043,14 +1082,24 @@ public partial struct FlowFieldSystem : ISystem
 [UpdateBefore(typeof(PhysicsSystem))]
 public partial struct MonsterPathFollowSystem : ISystem
 {
+    [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
         state.RequireForUpdate<MonsterTag>();
         state.RequireForUpdate<MapNavCellData>();
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
+        foreach (var runtimeState in SystemAPI.Query<RefRO<StageRuntimeState>>())
+        {
+            if (!StageRuntimeUtility.IsGameplayPhase(runtimeState.ValueRO.Phase))
+            {
+                return;
+            }
+        }
+
         foreach (var (velocity, transform, moveSpeed, debuffs) in
                  SystemAPI.Query<RefRW<Velocity>, RefRO<LocalTransform>, RefRO<MoveSpeed>, RefRO<DebuffAggregate>>()
                      .WithAll<MonsterTag>()
@@ -1064,9 +1113,7 @@ public partial struct MonsterPathFollowSystem : ISystem
                 continue;
             }
 
-            var moveSpeedMultiplier = debuffs.ValueRO.IsMovementLocked != 0
-                ? 0f
-                : debuffs.ValueRO.MoveSpeedMultiplier;
+            var moveSpeedMultiplier = debuffs.ValueRO.MoveSpeedMultiplier;
 
             velocity.ValueRW.Value = new float3(
                 direction.x * moveSpeed.ValueRO.Value * moveSpeedMultiplier,

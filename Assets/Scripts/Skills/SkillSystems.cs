@@ -1,3 +1,4 @@
+using Unity.Burst;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Collections;
@@ -5,12 +6,14 @@ using Unity.Transforms;
 
 /// <summary>
 /// 装備済み attack skill の cooltime を更新する。
+/// Cooldown 中の slot だけを処理し、終了した slot を ready 状態へ戻す。
 /// </summary>
 [UpdateInGroup(typeof(SimulationSystemGroup))]
 public partial struct SkillCooltimeSystem : ISystem
 {
     private EntityQuery equippedBuffSkillQuery;
 
+    [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
         state.RequireForUpdate<AttackSkillConfig>();
@@ -21,8 +24,17 @@ public partial struct SkillCooltimeSystem : ISystem
             .Build(ref state);
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
+        foreach (var runtimeState in SystemAPI.Query<RefRO<StageRuntimeState>>())
+        {
+            if (!StageRuntimeUtility.IsGameplayPhase(runtimeState.ValueRO.Phase))
+            {
+                return;
+            }
+        }
+
         var deltaTime = SystemAPI.Time.DeltaTime;
         var buffSkills = equippedBuffSkillQuery.ToComponentDataArray<BuffSkillConfig>(Allocator.Temp);
         var buffSlots = equippedBuffSkillQuery.ToComponentDataArray<SkillSlotComponent>(Allocator.Temp);
@@ -60,19 +72,30 @@ public partial struct SkillCooltimeSystem : ISystem
 
 /// <summary>
 /// プレイヤーが持つ ready attack skill を 1 つ発動予約する。
+/// 実際の target 決定や damage は SkillLogicSystem に任せ、ここでは IsTriggered だけを立てる。
 /// </summary>
 [UpdateInGroup(typeof(SimulationSystemGroup))]
 [UpdateAfter(typeof(SkillCooltimeSystem))]
 public partial struct PlayerCombatSystem : ISystem
 {
+    [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
         state.RequireForUpdate<PlayerTag>();
         state.RequireForUpdate<AttackSkillState>();
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
+        foreach (var runtimeState in SystemAPI.Query<RefRO<StageRuntimeState>>())
+        {
+            if (!StageRuntimeUtility.IsGameplayPhase(runtimeState.ValueRO.Phase))
+            {
+                return;
+            }
+        }
+
         var playerEntity = Entity.Null;
 
         foreach (var (_, entity) in
@@ -122,18 +145,29 @@ public partial struct PlayerCombatSystem : ISystem
 
 /// <summary>
 /// Casting 中の attack skill に対して、共通の発動経過時間を進める。
+/// 経過時間更新を独立させることで、damage / SFX / VFX が同じ時刻を参照できる。
 /// </summary>
 [UpdateInGroup(typeof(SimulationSystemGroup))]
 [UpdateAfter(typeof(PlayerCombatSystem))]
 public partial struct SkillCastElapsedTimeSystem : ISystem
 {
+    [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
         state.RequireForUpdate<AttackSkillState>();
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
+        foreach (var runtimeState in SystemAPI.Query<RefRO<StageRuntimeState>>())
+        {
+            if (!StageRuntimeUtility.IsGameplayPhase(runtimeState.ValueRO.Phase))
+            {
+                return;
+            }
+        }
+
         var deltaTime = SystemAPI.Time.DeltaTime;
 
         foreach (var skillState in
@@ -149,6 +183,7 @@ public partial struct SkillCastElapsedTimeSystem : ISystem
 
 /// <summary>
 /// 発動予約された attack skill の logic を実行する。
+/// Triggered slot から SkillCastTarget を確定し、DamageDelay 到達後に monster へ直接 HP 変更を適用する。
 /// </summary>
 [UpdateInGroup(typeof(SimulationSystemGroup))]
 [UpdateAfter(typeof(SkillCastElapsedTimeSystem))]
@@ -159,6 +194,9 @@ public partial struct SkillLogicSystem : ISystem
     private EntityQuery monsterQuery;
     private uint targetSelectionSequence;
 
+#if !UNITY_EDITOR && !DEVELOPMENT_BUILD
+    [BurstCompile]
+#endif
     public void OnCreate(ref SystemState state)
     {
         state.RequireForUpdate<AttackSkillConfig>();
@@ -175,9 +213,20 @@ public partial struct SkillLogicSystem : ISystem
             .Build(ref state);
     }
 
+#if !UNITY_EDITOR && !DEVELOPMENT_BUILD
+    [BurstCompile]
+#endif
     public void OnUpdate(ref SystemState state)
     {
-        var localToWorldLookup = SystemAPI.GetComponentLookup<LocalToWorld>(true);
+        foreach (var runtimeState in SystemAPI.Query<RefRO<StageRuntimeState>>())
+        {
+            if (!StageRuntimeUtility.IsGameplayPhase(runtimeState.ValueRO.Phase))
+            {
+                return;
+            }
+        }
+
+        var localTransformLookup = SystemAPI.GetComponentLookup<LocalTransform>(true);
         var facingLookup = SystemAPI.GetComponentLookup<FacingDirection>(true);
         var healthLookup = SystemAPI.GetComponentLookup<HealthComponent>(false);
         var hitVfxLookup = SystemAPI.GetComponentLookup<MonsterHitVfxState>(false);
@@ -206,7 +255,7 @@ public partial struct SkillLogicSystem : ISystem
                     ref skillStateValue,
                     ref castTargetValue,
                     slot.ValueRO.Owner,
-                    localToWorldLookup,
+                    localTransformLookup,
                     facingLookup,
                     experienceLookup,
                     levelStatsLookup,
@@ -299,7 +348,7 @@ public partial struct SkillLogicSystem : ISystem
         ref AttackSkillState skillState,
         ref SkillCastTarget castTarget,
         Entity owner,
-        ComponentLookup<LocalToWorld> localToWorldLookup,
+        ComponentLookup<LocalTransform> localTransformLookup,
         ComponentLookup<FacingDirection> facingLookup,
         ComponentLookup<ExperienceComponent> experienceLookup,
         ComponentLookup<PlayerLevelStats> levelStatsLookup,
@@ -309,15 +358,16 @@ public partial struct SkillLogicSystem : ISystem
         NativeArray<LocalTransform> monsterTransforms,
         ComponentLookup<HealthComponent> healthLookup)
     {
+        // Trigger は単発イベントとして扱い、ここで消費する。
         skillState.IsTriggered = 0;
 
-        if (!localToWorldLookup.HasComponent(owner))
+        if (!localTransformLookup.HasComponent(owner))
         {
             skillState.IsCasting = 0;
             return;
         }
 
-        var ownerPosition = localToWorldLookup[owner].Position;
+        var ownerPosition = localTransformLookup[owner].Position;
         var ownerFacing = SkillSystemUtility.GetOwnerFacing(owner, facingLookup);
         var buffs = SkillSystemUtility.CreateBuffAccumulatorForOwner(
             owner,
@@ -374,19 +424,30 @@ public partial struct SkillLogicSystem : ISystem
 
 /// <summary>
 /// ダメージと演出が終わった attack skill を cooltime 状態へ遷移させる。
+/// Managed presentation は別 system が担当するため、この system は完了フラグだけを見る。
 /// </summary>
 [UpdateInGroup(typeof(SimulationSystemGroup))]
 [UpdateAfter(typeof(SkillPresentationSystem))]
 public partial struct SkillCastCompletionSystem : ISystem
 {
+    [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
         state.RequireForUpdate<AttackSkillState>();
         state.RequireForUpdate<AttackSkillTimingConfig>();
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
+        foreach (var runtimeState in SystemAPI.Query<RefRO<StageRuntimeState>>())
+        {
+            if (!StageRuntimeUtility.IsGameplayPhase(runtimeState.ValueRO.Phase))
+            {
+                return;
+            }
+        }
+
         var presentationLookup = SystemAPI.GetComponentLookup<AttackSkillPresentation>(true);
 
         foreach (var (skillState, timing, skillEntity) in
@@ -394,7 +455,8 @@ public partial struct SkillCastCompletionSystem : ISystem
                      .WithAll<EquippedSkillTag, AttackSkillSlotTag>()
                      .WithEntityAccess())
         {
-            if (skillState.ValueRO.DamageApplied == 0 ||
+            if (skillState.ValueRO.IsCasting == 0 ||
+                skillState.ValueRO.DamageApplied == 0 ||
                 (presentationLookup.HasComponent(skillEntity) &&
                  !SkillMath.IsPresentationComplete(skillState.ValueRO, timing.ValueRO)))
             {
@@ -411,29 +473,47 @@ public partial struct SkillCastCompletionSystem : ISystem
 
 /// <summary>
 /// Monster の active debuff を更新し、他 system が読む集約値へ変換する。
+/// ActiveDebuff 配列を毎フレーム畳み込み、Movement / AI が直接読める倍率 component を作る。
 /// </summary>
 [UpdateInGroup(typeof(SimulationSystemGroup))]
+[UpdateAfter(typeof(SkillLogicSystem))]
 [UpdateBefore(typeof(MonsterSimpleAiSystem))]
 [UpdateBefore(typeof(MonsterPathFollowSystem))]
 public partial struct DebuffSystem : ISystem
 {
+    [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
         state.RequireForUpdate<DebuffRuntimeState>();
         state.RequireForUpdate<DebuffAggregate>();
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
-        var deltaTime = SystemAPI.Time.DeltaTime;
+        foreach (var runtimeState in SystemAPI.Query<RefRO<StageRuntimeState>>())
+        {
+            if (!StageRuntimeUtility.IsGameplayPhase(runtimeState.ValueRO.Phase))
+            {
+                return;
+            }
+        }
 
-        foreach (var (runtime, aggregate, health) in
-                 SystemAPI.Query<RefRW<DebuffRuntimeState>, RefRW<DebuffAggregate>, RefRW<HealthComponent>>())
+        var deltaTime = SystemAPI.Time.DeltaTime;
+        var entityCommandBuffer = new EntityCommandBuffer(Allocator.Temp);
+        var freezeLookup = SystemAPI.GetComponentLookup<FreezeTag>(true);
+        var freezeComponentLookup = SystemAPI.GetComponentLookup<FreezeComponent>(true);
+        var velocityLookup = SystemAPI.GetComponentLookup<Velocity>(true);
+
+        foreach (var (runtime, aggregate, health, entity) in
+                 SystemAPI.Query<RefRW<DebuffRuntimeState>, RefRW<DebuffAggregate>, RefRW<HealthComponent>>()
+                     .WithEntityAccess())
         {
             var activeDebuffs = runtime.ValueRO.ActiveDebuffs;
             var nextDebuffs = default(DebuffRuntimeState);
             var nextAggregate = DebuffMath.CreateNeutralAggregate();
             var currentHealth = health.ValueRO;
+            var nextFreezeDuration = 0f;
 
             for (var debuffIndex = 0; debuffIndex < activeDebuffs.Length; debuffIndex++)
             {
@@ -443,6 +523,12 @@ public partial struct DebuffSystem : ISystem
 
                 if (debuff.RemainingTime <= 0f)
                 {
+                    continue;
+                }
+
+                if (debuff.Kind == DebuffKind.Freeze)
+                {
+                    nextFreezeDuration = math.max(nextFreezeDuration, debuff.RemainingTime);
                     continue;
                 }
 
@@ -472,12 +558,221 @@ public partial struct DebuffSystem : ISystem
             runtime.ValueRW = nextDebuffs;
             aggregate.ValueRW = nextAggregate;
             health.ValueRW = currentHealth;
+
+            if (nextFreezeDuration > 0f)
+            {
+                AddOrRefreshFreeze(
+                    ref entityCommandBuffer,
+                    freezeLookup,
+                    freezeComponentLookup,
+                    velocityLookup,
+                    entity,
+                    nextFreezeDuration);
+            }
+        }
+
+        entityCommandBuffer.Playback(state.EntityManager);
+        entityCommandBuffer.Dispose();
+    }
+
+    private static void AddOrRefreshFreeze(
+        ref EntityCommandBuffer entityCommandBuffer,
+        ComponentLookup<FreezeTag> freezeLookup,
+        ComponentLookup<FreezeComponent> freezeComponentLookup,
+        ComponentLookup<Velocity> velocityLookup,
+        Entity entity,
+        float duration)
+    {
+        var nextFreezeDuration = math.max(0f, duration);
+
+        if (nextFreezeDuration <= 0f)
+        {
+            return;
+        }
+
+        if (!freezeLookup.HasComponent(entity))
+        {
+            entityCommandBuffer.AddComponent<FreezeTag>(entity);
+        }
+
+        if (freezeComponentLookup.HasComponent(entity))
+        {
+            var currentFreeze = freezeComponentLookup[entity];
+            var currentRemainingTime = math.max(
+                0f,
+                currentFreeze.ShouldFreezeTime - currentFreeze.Timer);
+
+            currentFreeze.ShouldFreezeTime = math.max(currentRemainingTime, nextFreezeDuration);
+            currentFreeze.Timer = 0f;
+            entityCommandBuffer.SetComponent(entity, currentFreeze);
+            return;
+        }
+
+        var restoreVelocity = velocityLookup.HasComponent(entity)
+            ? velocityLookup[entity]
+            : new Velocity
+            {
+                Value = float3.zero
+            };
+
+        entityCommandBuffer.AddComponent(entity, new FreezeComponent
+        {
+            ShouldFreezeTime = nextFreezeDuration,
+            Timer = 0f,
+            RestoreVelocity = restoreVelocity
+        });
+    }
+}
+
+/// <summary>
+/// Paralyze の回復カーブを移動速度倍率へ反映する。
+/// Freeze と違い Velocity は外さず、DebuffAggregate へ soft lock として掛け合わせる。
+/// </summary>
+[UpdateInGroup(typeof(SimulationSystemGroup))]
+[UpdateAfter(typeof(DebuffSystem))]
+[UpdateBefore(typeof(MonsterSimpleAiSystem))]
+[UpdateBefore(typeof(MonsterPathFollowSystem))]
+public partial struct ParalyzeSystem : ISystem
+{
+    [BurstCompile]
+    public void OnCreate(ref SystemState state)
+    {
+        state.RequireForUpdate<DebuffRuntimeState>();
+        state.RequireForUpdate<DebuffAggregate>();
+    }
+
+    [BurstCompile]
+    public void OnUpdate(ref SystemState state)
+    {
+        foreach (var runtimeState in SystemAPI.Query<RefRO<StageRuntimeState>>())
+        {
+            if (!StageRuntimeUtility.IsGameplayPhase(runtimeState.ValueRO.Phase))
+            {
+                return;
+            }
+        }
+
+        foreach (var (runtime, aggregate) in
+                 SystemAPI.Query<RefRO<DebuffRuntimeState>, RefRW<DebuffAggregate>>())
+        {
+            var paralyzeMoveSpeedMultiplier = DebuffMath.CalculateParalyzeMoveSpeedMultiplier(runtime.ValueRO);
+
+            if (paralyzeMoveSpeedMultiplier >= 1f)
+            {
+                continue;
+            }
+
+            aggregate.ValueRW.MoveSpeedMultiplier *= paralyzeMoveSpeedMultiplier;
         }
     }
 }
 
 /// <summary>
+/// FreezeTag が付いた Entity を移動処理から外す。
+/// Velocity component を削除することで、Movement / AI / PathFollow の query に入らない状態にする。
+/// </summary>
+[UpdateInGroup(typeof(SimulationSystemGroup))]
+[UpdateAfter(typeof(DebuffSystem))]
+[UpdateBefore(typeof(MonsterSimpleAiSystem))]
+[UpdateBefore(typeof(MonsterPathFollowSystem))]
+public partial struct FreezeSystem : ISystem
+{
+    [BurstCompile]
+    public void OnCreate(ref SystemState state)
+    {
+        state.RequireForUpdate<FreezeTag>();
+    }
+
+    [BurstCompile]
+    public void OnUpdate(ref SystemState state)
+    {
+        foreach (var runtimeState in SystemAPI.Query<RefRO<StageRuntimeState>>())
+        {
+            if (!StageRuntimeUtility.IsGameplayPhase(runtimeState.ValueRO.Phase))
+            {
+                return;
+            }
+        }
+
+        var entityCommandBuffer = new EntityCommandBuffer(Allocator.Temp);
+
+        foreach (var (_, entity) in
+                 SystemAPI.Query<RefRO<FreezeComponent>>()
+                     .WithAll<FreezeTag, Velocity>()
+                     .WithNone<MonsterDestroyVfxState>()
+                     .WithEntityAccess())
+        {
+            entityCommandBuffer.RemoveComponent<Velocity>(entity);
+            // HINT: 氷結専用 VFX / SFX component を追加したら、ここで null チェックして再生開始する。
+        }
+
+        entityCommandBuffer.Playback(state.EntityManager);
+        entityCommandBuffer.Dispose();
+    }
+}
+
+/// <summary>
+/// 氷結時間が終わった Entity を通常移動へ戻す。
+/// FreezeComponent の timer を進め、期限切れで FreezeTag / FreezeComponent を削除して Velocity を復元する。
+/// </summary>
+[UpdateInGroup(typeof(SimulationSystemGroup))]
+[UpdateAfter(typeof(FreezeSystem))]
+[UpdateBefore(typeof(MonsterSimpleAiSystem))]
+[UpdateBefore(typeof(MonsterPathFollowSystem))]
+public partial struct FreezeClearSystem : ISystem
+{
+    [BurstCompile]
+    public void OnCreate(ref SystemState state)
+    {
+        state.RequireForUpdate<FreezeTag>();
+    }
+
+    [BurstCompile]
+    public void OnUpdate(ref SystemState state)
+    {
+        foreach (var runtimeState in SystemAPI.Query<RefRO<StageRuntimeState>>())
+        {
+            if (!StageRuntimeUtility.IsGameplayPhase(runtimeState.ValueRO.Phase))
+            {
+                return;
+            }
+        }
+
+        var deltaTime = SystemAPI.Time.DeltaTime;
+        var entityCommandBuffer = new EntityCommandBuffer(Allocator.Temp);
+        var velocityLookup = SystemAPI.GetComponentLookup<Velocity>(true);
+
+        foreach (var (freezeComponent, entity) in
+                 SystemAPI.Query<RefRW<FreezeComponent>>()
+                     .WithAll<FreezeTag>()
+                     .WithNone<MonsterDestroyVfxState>()
+                     .WithEntityAccess())
+        {
+            var nextTimer = freezeComponent.ValueRO.Timer + math.max(0f, deltaTime);
+
+            if (nextTimer < math.max(0f, freezeComponent.ValueRO.ShouldFreezeTime))
+            {
+                freezeComponent.ValueRW.Timer = nextTimer;
+                continue;
+            }
+
+            if (!velocityLookup.HasComponent(entity))
+            {
+                entityCommandBuffer.AddComponent(entity, freezeComponent.ValueRO.RestoreVelocity);
+            }
+
+            entityCommandBuffer.RemoveComponent<FreezeTag>(entity);
+            entityCommandBuffer.RemoveComponent<FreezeComponent>(entity);
+        }
+
+        entityCommandBuffer.Playback(state.EntityManager);
+        entityCommandBuffer.Dispose();
+    }
+}
+
+/// <summary>
 /// Skill system が使う配列ベースの実行 helper。
+/// Entity 構造変更を行わず、受け取った NativeArray / ComponentLookup に対して明示的に読み書きする。
 /// </summary>
 public static class SkillSystemUtility
 {
@@ -607,6 +902,9 @@ public static class SkillSystemUtility
         skillState.IsTriggered = 0;
         skillState.IsCasting = 0;
         skillState.IsCooltime = 1;
+        skillState.DamageApplied = 0;
+        skillState.SfxPlayed = 0;
+        skillState.VfxSpawned = 0;
         skillState.StartedThisFrame = 0;
     }
 

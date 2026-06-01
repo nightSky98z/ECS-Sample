@@ -2,9 +2,13 @@ using Unity.Mathematics;
 
 /// <summary>
 /// Skill system から独立して検査できる攻撃計算。
+/// EntityQuery や World 状態を読まず、値だけを入力にする。
 /// </summary>
 public static class SkillMath
 {
+    /// <summary>
+    /// Buff が何もない状態の倍率 accumulator を作る。
+    /// </summary>
     public static BuffAccumulator CreateBuffAccumulator()
     {
         return new BuffAccumulator
@@ -17,6 +21,9 @@ public static class SkillMath
         };
     }
 
+    /// <summary>
+    /// 1 つの buff skill を accumulator へ反映する。
+    /// </summary>
     public static BuffAccumulator ApplyBuff(BuffAccumulator accumulator, BuffSkillConfig buff)
     {
         var multiplier = math.max(0f, buff.Multiplier);
@@ -43,6 +50,9 @@ public static class SkillMath
         return accumulator;
     }
 
+    /// <summary>
+    /// Skill level から skill 固有のダメージ倍率を計算する。
+    /// </summary>
     public static float CalculateLevelRate(int level)
     {
         var safeLevel = math.clamp(
@@ -53,6 +63,9 @@ public static class SkillMath
         return 1f + (safeLevel - 1) * PlayerCombatConstants.DamageRatePerLevel;
     }
 
+    /// <summary>
+    /// Skill 定義、skill level、buff から最終ダメージを計算する。
+    /// </summary>
     public static float CalculateEffectiveDamage(
         AttackSkillConfig config,
         AttackSkillState state,
@@ -61,6 +74,9 @@ public static class SkillMath
         return CalculateEffectiveDamage(config, state, buffs, 1f);
     }
 
+    /// <summary>
+    /// Player level 倍率も含めて最終ダメージを計算する。
+    /// </summary>
     public static float CalculateEffectiveDamage(
         AttackSkillConfig config,
         AttackSkillState state,
@@ -73,6 +89,9 @@ public static class SkillMath
                buffs.DamageMultiplier;
     }
 
+    /// <summary>
+    /// Buff 適用後の cooldown 秒を計算する。
+    /// </summary>
     public static float CalculateEffectiveCooltime(
         AttackSkillConfig config,
         BuffAccumulator buffs)
@@ -80,6 +99,9 @@ public static class SkillMath
         return math.max(0f, config.Cooltime) * buffs.CooltimeMultiplier;
     }
 
+    /// <summary>
+    /// Buff 適用後の対象探索半径を計算する。
+    /// </summary>
     public static float CalculateEffectiveTargetRange(
         AttackSkillConfig config,
         BuffAccumulator buffs)
@@ -87,6 +109,9 @@ public static class SkillMath
         return math.max(0f, config.BaseTargetRange) * buffs.TargetRangeMultiplier;
     }
 
+    /// <summary>
+    /// Buff 適用後の攻撃判定半径を計算する。
+    /// </summary>
     public static float CalculateEffectiveAttackRange(
         AttackSkillConfig config,
         BuffAccumulator buffs)
@@ -94,11 +119,17 @@ public static class SkillMath
         return math.max(0f, config.BaseAttackRange) * buffs.AttackRangeMultiplier;
     }
 
+    /// <summary>
+    /// float ダメージを HP component 用の整数値へ変換する。
+    /// </summary>
     public static int CalculateDamageToHp(float damage)
     {
         return math.max(0, (int)math.ceil(damage));
     }
 
+    /// <summary>
+    /// Skill level から 1 回の発動で作る攻撃円数を計算する。
+    /// </summary>
     public static int CalculateAttackCircleCount(
         int level,
         int baseTargetCount,
@@ -127,11 +158,21 @@ public static class SkillMath
         return math.clamp(safeBaseCount + additionalCount, 1, safeMaxCount);
     }
 
+    /// <summary>
+    /// 発動経過時間が指定 delay に到達したか判定する。
+    /// </summary>
     public static bool IsDelayReached(float elapsedTime, float delay)
     {
         return math.max(0f, elapsedTime) >= math.max(0f, delay);
     }
 
+    /// <summary>
+    /// Casting 中の skill state に共通経過時間を進める。
+    /// </summary>
+    /// <remarks>
+    /// 発動開始フレームは進めない。Logic system が同フレームで target を確定し、
+    /// 次フレームから damage / presentation delay を評価するため。
+    /// </remarks>
     public static AttackSkillState AdvanceCastElapsedTime(
         AttackSkillState state,
         float deltaTime)
@@ -146,6 +187,9 @@ public static class SkillMath
         return state;
     }
 
+    /// <summary>
+    /// 現在の DamageApplyCount に対応する damage 判定予定時刻を返す。
+    /// </summary>
     public static float CalculateDamageApplyDelay(
         AttackSkillTimingConfig timing,
         SkillCastTarget castTarget,
@@ -155,6 +199,9 @@ public static class SkillMath
                math.max(0, state.DamageApplyCount) * math.max(0f, castTarget.RepeatInterval);
     }
 
+    /// <summary>
+    /// 現在フレームで damage 判定を実行するべきか判定する。
+    /// </summary>
     public static bool ShouldApplySkillDamage(
         AttackSkillState state,
         AttackSkillTimingConfig timing,
@@ -173,6 +220,9 @@ public static class SkillMath
                    CalculateDamageApplyDelay(timing, castTarget, state));
     }
 
+    /// <summary>
+    /// SFX / VFX の必要な presentation がすべて完了したか判定する。
+    /// </summary>
     public static bool IsPresentationComplete(
         AttackSkillState state,
         AttackSkillTimingConfig timing)
@@ -183,6 +233,9 @@ public static class SkillMath
         return sfxComplete && vfxComplete;
     }
 
+    /// <summary>
+    /// VFX prefab の元半径と表示したい半径から localScale 倍率を計算する。
+    /// </summary>
     public static float CalculateVfxScale(
         float attackRange,
         AttackSkillTimingConfig timing)
@@ -195,6 +248,9 @@ public static class SkillMath
         return targetRadius / safePrefabRadius;
     }
 
+    /// <summary>
+    /// XZ 方向ベクトルを方向 bucket index に変換する。
+    /// </summary>
     public static int CalculateDirectionBucketIndex(float2 direction, int bucketCount)
     {
         var safeBucketCount = math.max(1, bucketCount);
@@ -216,6 +272,9 @@ public static class SkillMath
         return math.clamp(bucketIndex, 0, safeBucketCount - 1);
     }
 
+    /// <summary>
+    /// 対象選択時の重みを計算する。近い対象ほど少し重くなる。
+    /// </summary>
     public static float CalculateTargetSelectionWeight(
         float distanceSq,
         float targetRangeSq,

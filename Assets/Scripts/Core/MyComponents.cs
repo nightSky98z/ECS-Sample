@@ -3,28 +3,40 @@ using Unity.Entities;
 using Unity.Mathematics;
 
 /// <summary>
-/// Entity の現在速度。
+/// Entity の現在速度。MovementSystem / PhysicsSystem が直接更新する runtime 状態。
 /// </summary>
 public struct Velocity : IComponentData
 {
-    // x,z は移動で処理され、y はジャンプと重力で処理される。
+    /// <summary>
+    /// x/z は水平移動、y は重力や接地補正で使う。
+    /// </summary>
     public float3 Value;
 }
 
 /// <summary>
-/// Entity の移動速度。
+/// Entity の基礎水平移動速度。倍率系の効果は別 component に持たせ、元値は破壊しない。
 /// </summary>
 public struct MoveSpeed : IComponentData
 {
+    /// <summary>
+    /// 1 秒あたりの XZ 移動量。
+    /// </summary>
     public float Value;
 }
 
 /// <summary>
-/// 被弾など、入力とは別に短時間だけ残る速度。
+/// 被弾など、入力や AI とは別に短時間だけ残る水平速度。
 /// </summary>
 public struct KnockbackVelocity : IComponentData
 {
+    /// <summary>
+    /// MovementSystem が Velocity に合成する追加速度。
+    /// </summary>
     public float3 Value;
+
+    /// <summary>
+    /// 1 秒あたりに減らす速度量。0 以下なら減衰しない。
+    /// </summary>
     public float DecayPerSecond;
 }
 
@@ -33,7 +45,14 @@ public struct KnockbackVelocity : IComponentData
 /// </summary>
 public struct HealthComponent : IComponentData
 {
+    /// <summary>
+    /// 現在 HP。0 以下は死亡状態として扱う。
+    /// </summary>
     public int CurrentHp;
+
+    /// <summary>
+    /// 現在の最大 HP。レベルアップや buff で更新されるため、固定 config ではない。
+    /// </summary>
     public int MaxHp;
 }
 
@@ -42,8 +61,19 @@ public struct HealthComponent : IComponentData
 /// </summary>
 public struct ExperienceComponent : IComponentData
 {
+    /// <summary>
+    /// 現在 level 内で保持している経験値。
+    /// </summary>
     public int CurrentExperience;
+
+    /// <summary>
+    /// 次 level へ進むために必要な経験値。MaxLevel 到達後は 0。
+    /// </summary>
     public int RequiredExperience;
+
+    /// <summary>
+    /// 現在 level。ExperienceConstants.MaxLevel を上限とする。
+    /// </summary>
     public int Level;
 }
 
@@ -52,7 +82,14 @@ public struct ExperienceComponent : IComponentData
 /// </summary>
 public struct ExperienceLevelConfig : IComponentData
 {
+    /// <summary>
+    /// Lv1 から Lv2 に上がるための必要経験値。
+    /// </summary>
     public int BaseRequiredExperience;
+
+    /// <summary>
+    /// 次 level 必要経験値へ掛ける倍率。1 未満は 1 として扱う。
+    /// </summary>
     public float RequiredExperienceMultiplierPerLevel;
 }
 
@@ -61,6 +98,9 @@ public struct ExperienceLevelConfig : IComponentData
 /// </summary>
 public struct ExperienceReward : IComponentData
 {
+    /// <summary>
+    /// 死亡時に player へ加算する経験値。負値は 0 に正規化する。
+    /// </summary>
     public int Value;
 }
 
@@ -69,8 +109,19 @@ public struct ExperienceReward : IComponentData
 /// </summary>
 public struct PlayerLevelStats : IComponentData
 {
+    /// <summary>
+    /// Lv1 の最大 HP。
+    /// </summary>
     public int BaseMaxHp;
+
+    /// <summary>
+    /// レベル 1 つごとの最大 HP 増加量。
+    /// </summary>
     public int MaxHpPerLevel;
+
+    /// <summary>
+    /// レベル 1 つごとのスキルダメージ倍率増加量。
+    /// </summary>
     public float SkillDamageRatePerLevel;
 }
 
@@ -79,6 +130,9 @@ public struct PlayerLevelStats : IComponentData
 /// </summary>
 public struct EntityDisplayName : IComponentData
 {
+    /// <summary>
+    /// ECS 側で所有する短い表示名。UnityEngine.Object への参照は保持しない。
+    /// </summary>
     public FixedString64Bytes Value;
 }
 
@@ -87,7 +141,14 @@ public struct EntityDisplayName : IComponentData
 /// </summary>
 public struct HealthBarAnchor : IComponentData
 {
+    /// <summary>
+    /// Entity root から見た HP bar の表示基準位置。
+    /// </summary>
     public float3 LocalOffset;
+
+    /// <summary>
+    /// 画面上に出す HP bar の UI サイズ。
+    /// </summary>
     public float2 Size;
 }
 
@@ -96,6 +157,9 @@ public struct HealthBarAnchor : IComponentData
 /// </summary>
 public struct CollisionRadius : IComponentData
 {
+    /// <summary>
+    /// XZ 平面で使う半径。Unity Physics collider の形状とは独立したゲームロジック用の値。
+    /// </summary>
     public float Value;
 }
 
@@ -104,6 +168,9 @@ public struct CollisionRadius : IComponentData
 /// </summary>
 public struct Gravity : IComponentData
 {
+    /// <summary>
+    /// Velocity.y に加算する加速度。
+    /// </summary>
     public float Acceleration;
 }
 
@@ -112,6 +179,9 @@ public struct Gravity : IComponentData
 /// </summary>
 public struct GroundSnap : IComponentData
 {
+    /// <summary>
+    /// 最後に接地した地面の world Y。
+    /// </summary>
     public float GroundY;
 
     /// <summary>
@@ -125,6 +195,9 @@ public struct GroundSnap : IComponentData
 /// </summary>
 public struct GroundFallRescue : IComponentData
 {
+    /// <summary>
+    /// GroundY よりこの距離以上落ちたら救済する。0 以下は無効。
+    /// </summary>
     public float MaxBelowGroundY;
 }
 
@@ -149,8 +222,19 @@ public struct StaticObstacleTag : IComponentData
 /// </summary>
 public struct GroundSensor : IComponentData
 {
+    /// <summary>
+    /// Entity root から見た sensor sphere の local 中心。
+    /// </summary>
     public float3 LocalCenter;
+
+    /// <summary>
+    /// Sensor sphere の半径。
+    /// </summary>
     public float Radius;
+
+    /// <summary>
+    /// 接地とみなす余白距離。
+    /// </summary>
     public float Skin;
 }
 
@@ -159,6 +243,9 @@ public struct GroundSensor : IComponentData
 /// </summary>
 public struct FacingDirection : IComponentData
 {
+    /// <summary>
+    /// 正規化済みの XZ 向き。停止中は最後の有効向きを保持する。
+    /// </summary>
     public float2 Value;
 }
 

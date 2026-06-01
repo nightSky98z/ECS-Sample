@@ -5,6 +5,9 @@ using Unity.Transforms;
 
 /// <summary>
 /// MonsterSimpleAi の対象速度を計算する。
+///
+/// この System は horizontal velocity だけを決める。Y 速度は PhysicsSystem が所有するため、
+/// 重力や接地状態を AI が上書きしない。
 /// </summary>
 [UpdateBefore(typeof(MovementSystem))]
 public partial struct MonsterSimpleAiSystem : ISystem
@@ -19,6 +22,14 @@ public partial struct MonsterSimpleAiSystem : ISystem
     [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
+        foreach (var runtimeState in SystemAPI.Query<RefRO<StageRuntimeState>>())
+        {
+            if (!StageRuntimeUtility.IsGameplayPhase(runtimeState.ValueRO.Phase))
+            {
+                return;
+            }
+        }
+
         var hasPlayer = false;
         var playerPosition = float3.zero;
 
@@ -43,9 +54,7 @@ public partial struct MonsterSimpleAiSystem : ISystem
                      .WithNone<MonsterDestroyVfxState>())
         {
             var currentVelocity = velocity.ValueRO.Value;
-            var moveSpeedMultiplier = debuffs.ValueRO.IsMovementLocked != 0
-                ? 0f
-                : debuffs.ValueRO.MoveSpeedMultiplier;
+            var moveSpeedMultiplier = debuffs.ValueRO.MoveSpeedMultiplier;
             var chaseVelocity = MonsterSimpleAiMath.CalculateChaseVelocity(
                 transform.ValueRO.Position,
                 playerPosition,
@@ -58,6 +67,9 @@ public partial struct MonsterSimpleAiSystem : ISystem
 
 /// <summary>
 /// Velocity から LocalTransform を更新し、ゲーム用の接触半径で位置を補正する。
+///
+/// Rigidbody は使わず、ECS データの Velocity / CollisionRadius を直接処理する。
+/// Static obstacle との接触は StaticObstacleCollisionSystem に分離し、この System は動的 entity 同士だけを見る。
 /// </summary>
 [UpdateAfter(typeof(PhysicsSystem))]
 public partial struct MovementSystem : ISystem
@@ -71,8 +83,17 @@ public partial struct MovementSystem : ISystem
     [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
+        foreach (var runtimeState in SystemAPI.Query<RefRO<StageRuntimeState>>())
+        {
+            if (!StageRuntimeUtility.IsGameplayPhase(runtimeState.ValueRO.Phase))
+            {
+                return;
+            }
+        }
+
         var deltaTime = SystemAPI.Time.DeltaTime;
 
+        // Player の horizontal velocity は入力と knockback の合成値で毎 frame 上書きする。
         foreach (var (input, velocity, speed, knockback) in
                  SystemAPI.Query<RefRO<PlayerInput>, RefRW<Velocity>, RefRO<MoveSpeed>, RefRW<KnockbackVelocity>>()
                      .WithAll<PlayerTag>())
@@ -100,6 +121,7 @@ public partial struct MovementSystem : ISystem
                          .WithAll<MonsterTag>()
                          .WithNone<MonsterDestroyVfxState>())
             {
+                // Dynamic 同士の押し戻しは XZ 平面だけに限定し、地面から浮き上がらないようにする。
                 nextPosition = MovementMath.ResolveCirclePenetration(
                     nextPosition,
                     playerRadius.ValueRO.Value,
@@ -150,14 +172,30 @@ public partial struct MovementSystem : ISystem
 
 /// <summary>
 /// MovementSystem が使う移動計算。
+///
+/// テストしやすいよう、状態を持たない値計算だけをここに置く。
 /// </summary>
 public static class MovementMath
 {
+    /// <summary>
+    /// 入力移動と外力速度を合成し、次の水平速度を返す。
+    /// </summary>
+    /// <param name="inputMove">長さ最大 1 の XZ 入力。</param>
+    /// <param name="moveSpeed">基礎移動速度。</param>
+    /// <param name="knockbackVelocity">被弾などで残っている追加速度。</param>
+    /// <returns>Y を 0 とした合成水平速度。</returns>
     public static float3 ComposeVelocity(float2 inputMove, float moveSpeed, float3 knockbackVelocity)
     {
         return new float3(inputMove.x, 0f, inputMove.y) * moveSpeed + knockbackVelocity;
     }
 
+    /// <summary>
+    /// 速度の向きを保ったまま、大きさだけを一定量減らす。
+    /// </summary>
+    /// <param name="velocity">減衰前の速度。</param>
+    /// <param name="decayPerSecond">1 秒あたりに減らす速度量。</param>
+    /// <param name="deltaTime">今回の更新秒数。</param>
+    /// <returns>減衰後の速度。</returns>
     public static float3 DecayVelocity(float3 velocity, float decayPerSecond, float deltaTime)
     {
         var speedSq = math.lengthsq(velocity);

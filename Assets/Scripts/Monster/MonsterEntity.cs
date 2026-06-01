@@ -13,6 +13,8 @@ public struct MonsterTag : IComponentData
 
 /// <summary>
 /// 通常 monster として recycle 対象にできることを示すタグ。
+///
+/// Boss / Elite / 特殊敵はこのタグを持たせず、死亡 VFX 後に Entity を破棄する。
 /// </summary>
 public struct MonsterRecycleTag : IComponentData
 {
@@ -21,6 +23,9 @@ public struct MonsterRecycleTag : IComponentData
 
 /// <summary>
 /// GameObject の Monster Prefab を ECS の Monster Entity に変換する Authoring。
+///
+/// Inspector の値は Bake 時に component data へコピーされる。runtime 中の HP、debuff、VFX 状態は
+/// MonsterDestroySystem / DebuffSystem / VFX 系 System が所有する。
 /// </summary>
 public class MonsterEntity : MonoBehaviour
 {
@@ -93,6 +98,9 @@ public class MonsterEntity : MonoBehaviour
 
     private class Baker : Unity.Entities.Baker<MonsterEntity>
     {
+        /// <summary>
+        /// Monster prefab root に AI、HP、debuff、接地、VFX 用 component を付与する。
+        /// </summary>
         public override void Bake(MonsterEntity authoring)
         {
             var entity = GetEntity(TransformUsageFlags.Dynamic);
@@ -121,6 +129,7 @@ public class MonsterEntity : MonoBehaviour
             {
                 ActiveDebuffs = default
             });
+            // DebuffAggregate は常に持たせる。デバフがない frame でも AI が分岐せず倍率を読める。
             AddComponent(entity, DebuffMath.CreateNeutralAggregate());
             AddComponent(entity, HealthMath.CreateFullHealth(authoring.MaxHp));
             AddComponent(entity, new ExperienceReward
@@ -203,9 +212,14 @@ public sealed class MonsterBaseColorOverrideBaker : Unity.Entities.Baker<Rendere
 
 /// <summary>
 /// Monster baking が共有する authoring-time の色変換処理。
+///
+/// Material 参照は runtime component に保存せず、Bake 時点で必要な色だけを float4 として ECS 側へ移す。
 /// </summary>
 public static class MonsterEntityBakingUtility
 {
+    /// <summary>
+    /// UnityEngine.Color を ECS/Entities Graphics で扱いやすい linear float4 へ変換する。
+    /// </summary>
     public static float4 ConvertColorToLinearFloat4(Color color)
     {
         var linearColor = color.linear;
@@ -217,6 +231,9 @@ public static class MonsterEntityBakingUtility
             linearColor.a);
     }
 
+    /// <summary>
+    /// Monster prefab 配下の最初の renderer から復帰用の base color を取得する。
+    /// </summary>
     public static float4 GetFirstRendererBaseColor(MonsterEntity authoring)
     {
         var meshRenderer = authoring.GetComponentInChildren<Renderer>(true);
@@ -229,6 +246,9 @@ public static class MonsterEntityBakingUtility
         return GetRendererBaseColor(meshRenderer);
     }
 
+    /// <summary>
+    /// Renderer の material から URP/lit 系で使う base color を取得する。
+    /// </summary>
     public static float4 GetRendererBaseColor(Renderer renderer)
     {
         if (renderer.sharedMaterial == null)

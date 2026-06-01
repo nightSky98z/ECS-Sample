@@ -11,7 +11,7 @@ GameObject:
   - component: {fileID: 6118745201134000002}
   - component: {fileID: 6118745201134000003}
   m_Layer: 0
-  m_Name: SkillEntity_WaterCircleAttack
+  m_Name: SkillEntity_IceCircleAttack
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -48,7 +48,7 @@ MonoBehaviour:
   Cooltime: 1
   BaseTargetRange: 10
   BaseAttackRange: 4
-  BaseTargetCount: 2
+  BaseTargetCount: 1
   TargetCountLevelWeight: 0.5
   MaxTargetCount: 32
   TargetCountRoundMode: 0
@@ -68,11 +68,11 @@ MonoBehaviour:
   RepeatInterval: 0.35
   OnHitDebuffs:
   - DebuffId: 0
-    Kind: 0
+    Kind: 5
     StackPolicy: 0
     Chance: 1
     Duration: 2
-    Value0: 0.8
+    Value0: 0
     Value1: 0
     TickInterval: 1
   DamageDelay: 0.2

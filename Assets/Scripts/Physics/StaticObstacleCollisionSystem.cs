@@ -7,6 +7,9 @@ using Unity.Transforms;
 
 /// <summary>
 /// DOTS Physics の static obstacle に対して、CollisionRadius を持つ Entity を XZ 平面で押し戻す。
+///
+/// この System は最後の保険として障害物侵入を解消する。経路探索が失敗しても entity が木や岩に
+/// めり込み続けないようにするため、押し戻しは Y を変更せず水平面だけに限定する。
 /// </summary>
 [UpdateAfter(typeof(MovementSystem))]
 [UpdateBefore(typeof(GroundSensorSystem))]
@@ -58,6 +61,7 @@ public partial struct StaticObstacleCollisionSystem : ISystem
                     radius);
                 var movedThisIteration = false;
 
+                // 複数障害物の角では 1 回の query だけでは押し戻しが足りないため、少数回だけ反復する。
                 obstacleHits.Clear();
                 collisionWorld.OverlapSphere(
                     resolvedCenter,

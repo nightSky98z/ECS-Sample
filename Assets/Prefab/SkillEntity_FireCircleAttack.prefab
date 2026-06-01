@@ -44,15 +44,29 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c433e15ebfe94c949a2381201ed6d0f2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::InstantImpactSkillAuthoring
-  BaseDamage: 15
+  BaseDamage: 20
   Cooltime: 1
   BaseTargetRange: 10
   BaseAttackRange: 4
-  BaseTargetCount: 3
+  BaseTargetCount: 2
   TargetCountLevelWeight: 0.5
   MaxTargetCount: 32
   TargetCountRoundMode: 0
   Level: 1
+  LogicKind: 0
+  ForwardSectorAngleDegrees: 90
+  LineWidth: 0
+  SecondaryBaseCount: 1
+  SecondaryCountLevelWeight: 0
+  SecondaryMaxCount: 32
+  SecondaryTargetRange: 8
+  SecondaryAttackRangeMultiplier: 0.5
+  RandomGroundRadius: 0
+  RepeatBaseCount: 1
+  RepeatCountLevelWeight: 0
+  RepeatMaxCount: 32
+  RepeatInterval: 0.35
+  OnHitDebuffs: []
   DamageDelay: 0.2
   SfxDelay: 0.1
   SfxVolume: 1
@@ -61,4 +75,4 @@ MonoBehaviour:
   VfxPrefabRadius: 1
   VfxDisplayRadius: 0
   SfxClip: {fileID: 8300000, guid: 2bd3fea5de5864f2d8a49036cdc2ebc4, type: 3}
-  VfxPrefab: {fileID: 1426208431218912, guid: bb1dc87cf2933a946baac903ab77f4c5, type: 3}
+  VfxPrefab: {fileID: 1029920829223762, guid: b5195f1bc5ffde8498b6de71ce48a806, type: 3}

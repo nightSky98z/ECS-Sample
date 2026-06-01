@@ -294,6 +294,14 @@ public sealed class AttackSkillAuthoring : MonoBehaviour, IAttackSkillDefinition
             debuffs[debuffIndex].TickInterval = debuffs[debuffIndex].TickInterval > 0f
                 ? debuffs[debuffIndex].TickInterval
                 : DebuffConstants.DefaultDotTickInterval;
+
+            if (debuffs[debuffIndex].Kind == DebuffKind.Paralyze)
+            {
+                debuffs[debuffIndex].Value0 = math.saturate(debuffs[debuffIndex].Value0);
+                debuffs[debuffIndex].Value1 = debuffs[debuffIndex].Value1 > 0f
+                    ? debuffs[debuffIndex].Value1
+                    : DebuffConstants.DefaultParalyzeRecoveryPower;
+            }
         }
     }
 

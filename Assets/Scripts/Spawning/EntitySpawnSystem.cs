@@ -1,14 +1,17 @@
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Transforms;
 
 public partial struct EntitySpawnSystem : ISystem
 {
+    [BurstCompile]
     public void OnCreate(ref SystemState state)
     {
         state.RequireForUpdate<SpawnRequest>();
     }
 
+    [BurstCompile]
     public void OnUpdate(ref SystemState state)
     {
         var entityCommandBuffer = new EntityCommandBuffer(Allocator.Temp);

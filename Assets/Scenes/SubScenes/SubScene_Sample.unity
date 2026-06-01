@@ -220,15 +220,16 @@ MonoBehaviour:
   SpawnIntervalSeconds: 1
   SpawnCountPerInterval: 400
   MaxAliveMonsterCount: 1000
-  NearbyMonsterTargetCount: 100
-  NearbyMonsterLowThreshold: 60
-  NearbyMonsterRadius: 200
-  MinSpawnDistanceFromPlayer: 20
-  MaxSpawnDistanceFromPlayer: 30
+  NearbyMonsterTargetCount: 240
+  NearbyMonsterLowThreshold: 200
+  NearbyDensityCheckIntervalSeconds: 0.1
+  NearbyMonsterRadius: 60
+  MinSpawnDistanceFromPlayer: 26
+  MaxSpawnDistanceFromPlayer: 29
   ForwardSpawnBias: 0.65
-  RecycleDistanceFromPlayer: 305.01
+  RecycleDistanceFromPlayer: 120
   RecycleCheckIntervalSeconds: 0.2
-  MaxRecycleChecksPerFrame: 100
+  MaxRecycleChecksPerFrame: 200
   RandomSeed: 2
   StageTunings: []
 --- !u!1001 &640512236
