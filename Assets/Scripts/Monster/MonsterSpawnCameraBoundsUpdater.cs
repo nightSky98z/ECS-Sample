@@ -4,80 +4,82 @@ using Unity.Transforms;
 using UnityEngine;
 
 /// <summary>
-/// Camera の現在の地面表示範囲から、通常 monster を画面外へ出すための距離を ECS に渡す。
+/// カメラに映っている地面の範囲をもとに計算した、モンスターの出現距離（画面のすぐ外側）。
+/// MonsterSpawnCameraBoundsUpdater が書き込み、MonsterSpawnDirectorSystem が読む。
 /// </summary>
 public struct MonsterSpawnCameraBounds : IComponentData
 {
     /// <summary>
-    /// Camera から見えている地面範囲を player 中心の円で包んだ半径。
+    /// カメラに映っている地面の範囲を、プレイヤーを中心とした円で囲んだときの半径。
     /// </summary>
     public float VisibleGroundRadius;
 
     /// <summary>
-    /// 通常 monster を出す player からの最小 XZ 距離。
+    /// モンスターを出現させる、プレイヤーからの最小距離（XZ 平面）。
     /// </summary>
     public float MinSpawnDistanceFromPlayer;
 
     /// <summary>
-    /// 通常 monster を出す player からの最大 XZ 距離。
+    /// モンスターを出現させる、プレイヤーからの最大距離（XZ 平面）。
     /// </summary>
     public float MaxSpawnDistanceFromPlayer;
 
     /// <summary>
-    /// 1 のとき、Camera から計算した値として spawn director が利用できる。
+    /// 1 なら値が有効（カメラから計算できた）。0 の場合、出現処理は Inspector の設定値を使う。
     /// </summary>
     public byte IsValid;
 
     /// <summary>
-    /// Viewport 境界 sample 0 の player からの XZ offset。
+    /// 画面の端（8 か所）を地面に投影した点の、プレイヤーからの相対位置。[0] 左下
     /// </summary>
     public float2 GroundOffset0;
 
     /// <summary>
-    /// Viewport 境界 sample 1 の player からの XZ offset。
+    /// [1] 下辺の中央
     /// </summary>
     public float2 GroundOffset1;
 
     /// <summary>
-    /// Viewport 境界 sample 2 の player からの XZ offset。
+    /// [2] 右下
     /// </summary>
     public float2 GroundOffset2;
 
     /// <summary>
-    /// Viewport 境界 sample 3 の player からの XZ offset。
+    /// [3] 左辺の中央
     /// </summary>
     public float2 GroundOffset3;
 
     /// <summary>
-    /// Viewport 境界 sample 4 の player からの XZ offset。
+    /// [4] 右辺の中央
     /// </summary>
     public float2 GroundOffset4;
 
     /// <summary>
-    /// Viewport 境界 sample 5 の player からの XZ offset。
+    /// [5] 左上
     /// </summary>
     public float2 GroundOffset5;
 
     /// <summary>
-    /// Viewport 境界 sample 6 の player からの XZ offset。
+    /// [6] 上辺の中央
     /// </summary>
     public float2 GroundOffset6;
 
     /// <summary>
-    /// Viewport 境界 sample 7 の player からの XZ offset。
+    /// [7] 右上
     /// </summary>
     public float2 GroundOffset7;
 }
 
 /// <summary>
-/// Main Camera の視野を読み、monster spawn ring を画面外の少し外側へ合わせる。
-///
-/// Camera は managed object なので ECS system から直接読まず、この MonoBehaviour が小さい
-/// singleton component へ値だけを書き込む。MonsterSpawnDirectorSystem はその component を読む。
+/// カメラの視野を読み取り、モンスターが「画面のすぐ外側」に出現するよう出現距離を調整する。
+/// Camera は Managed オブジェクトで ECS の System（Burst）から直接読めないため、
+/// この MonoBehaviour が計算結果だけを Component に書き込み、ECS 側はその値を読む。
+/// 画面の大きさや縦横比が変わっても、敵が画面内に突然現れたり、遠すぎる場所に出たりしないようにしている。
 /// </summary>
 [DefaultExecutionOrder(1000)]
 public sealed class MonsterSpawnCameraBoundsUpdater : MonoBehaviour
 {
+    // 画面の端の 8 か所（四隅と各辺の中央）。ここからカメラのレイを飛ばし、地面との交点を求める。
     private static readonly Vector2[] ViewportSamples =
     {
         new Vector2(0f, 0f),
@@ -120,6 +122,9 @@ public sealed class MonsterSpawnCameraBoundsUpdater : MonoBehaviour
         EnsureEcsState();
     }
 
+    /// <summary>
+    /// 毎フレーム、カメラの視野から出現距離を計算して ECS に書き込む。計算できなければ「無効」を書き込む。
+    /// </summary>
     private void LateUpdate()
     {
         if (!EnsureEcsState() ||
@@ -174,6 +179,9 @@ public sealed class MonsterSpawnCameraBoundsUpdater : MonoBehaviour
         return TargetCamera != null;
     }
 
+    /// <summary>
+    /// 値を書き込む Entity とプレイヤーの Query を用意する。World が作り直された場合は作り直す。
+    /// </summary>
     private bool EnsureEcsState()
     {
         var world = World.DefaultGameObjectInjectionWorld;
@@ -203,6 +211,9 @@ public sealed class MonsterSpawnCameraBoundsUpdater : MonoBehaviour
         return true;
     }
 
+    /// <summary>
+    /// 作成した Entity と Query を破棄する。
+    /// </summary>
     private void ReleaseEcsState()
     {
         if (hasPlayerQuery &&
@@ -267,6 +278,9 @@ public sealed class MonsterSpawnCameraBoundsUpdater : MonoBehaviour
         });
     }
 
+    /// <summary>
+    /// 画面の端からレイを飛ばして地面との交点を求め、カメラに映っている地面の範囲を計算する。
+    /// </summary>
     private static bool TryCalculateVisibleGroundBounds(
         Camera targetCamera,
         float3 playerPosition,
@@ -289,6 +303,7 @@ public sealed class MonsterSpawnCameraBoundsUpdater : MonoBehaviour
             var sample = ViewportSamples[sampleIndex];
             var ray = targetCamera.ViewportPointToRay(new Vector3(sample.x, sample.y, 0f));
 
+            // レイが地面と平行、または上を向いている場合は交点がないので除外する。
             if (math.abs(ray.direction.y) <= 0.0001f)
             {
                 continue;

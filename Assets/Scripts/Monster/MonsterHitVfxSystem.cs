@@ -1,15 +1,14 @@
 using Unity.Mathematics;
 
 /// <summary>
-/// Monster hit VFX の時間と material color 計算。
-///
-/// 被弾 VFX は renderer の色を短時間だけ差し替える。再生開始や material 書き込みは別 System が行い、
-/// ここでは duration / progress / color の値計算だけを扱う。
+/// モンスターの被弾演出の計算処理（時間と色）。
+/// 被弾演出は、見た目の色を一瞬だけ変えて元に戻す演出。
+/// 再生の開始や色の書き込みは別の System が行い、ここでは値の計算だけを扱う。
 /// </summary>
 public static class MonsterHitVfxMath
 {
     /// <summary>
-    /// 被弾 VFX duration を 0 より大きい値へ正規化する。
+    /// 演出の長さが 0 以下にならないように補正する（0 で割るのを防ぐ）。
     /// </summary>
     public static float NormalizeDuration(float duration)
     {
@@ -17,7 +16,7 @@ public static class MonsterHitVfxMath
     }
 
     /// <summary>
-    /// elapsed / duration から 0..1 の再生率を返す。
+    /// 経過時間から、演出の進み具合（0〜1）を返す。
     /// </summary>
     public static float CalculateProgress(float elapsedTime, float duration)
     {
@@ -25,7 +24,7 @@ public static class MonsterHitVfxMath
     }
 
     /// <summary>
-    /// 被弾色から通常色へ戻る base color を返す。
+    /// 進み具合に応じて、被弾時の色から元の色へ徐々に戻した色を返す。
     /// </summary>
     public static float4 CalculateBaseColor(float4 hitColor, float4 restColor, float progress)
     {

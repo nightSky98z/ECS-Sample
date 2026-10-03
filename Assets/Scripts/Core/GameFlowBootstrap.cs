@@ -5,7 +5,10 @@ using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 /// <summary>
-/// ゲーム開始、ゲーム本編、リザルトの最小 scene flow を管理する。
+/// 画面遷移（タイトル → ゲーム本編 → リザルト → タイトル）を管理する。
+/// ・タイトル画面とリザルト画面の UI は、コードで生成する（Prefab に依存しない）
+/// ・ゲーム本編では ECS の StageClearState を監視し、クリアしたらリザルト画面へ移る
+/// ・シーンに手動で配置しなくても自動で生成され、シーンをまたいで残り続ける
 /// </summary>
 [DefaultExecutionOrder(320)]
 public sealed class GameFlowBootstrap : MonoBehaviour
@@ -48,11 +51,12 @@ public sealed class GameFlowBootstrap : MonoBehaviour
     private int framesSinceSceneLoaded;
 
     /// <summary>
-    /// スタート画面を経由していない本編 / リザルト Scene を開始 Scene へ戻すかを判定する。
+    /// タイトル画面を通らずに本編やリザルトのシーンが開かれた場合に、タイトルへ戻すべきかを判定する。
+    /// （エディタで本編のシーンから直接再生したときも、必ずタイトルから始まるようにするため）
     /// </summary>
-    /// <param name="sceneName">現在の Scene 名。</param>
+    /// <param name="sceneName">現在のシーン名。</param>
     /// <param name="hasGameplayLaunchPermission">スタート画面からゲーム開始済みなら true。</param>
-    /// <returns>開始 Scene へ戻す必要があれば true。</returns>
+    /// <returns>タイトルへ戻す必要があれば true。</returns>
     public static bool ShouldRedirectToStartScene(string sceneName, bool hasGameplayLaunchPermission)
     {
         if (sceneName == StartSceneName)
@@ -69,7 +73,8 @@ public sealed class GameFlowBootstrap : MonoBehaviour
     }
 
     /// <summary>
-    /// Domain Reload 無効時でも Play 開始ごとに開始 Scene から始めるための初期化。
+    /// static 変数を Play 開始ごとにリセットする。
+    /// Domain Reload を無効にしていると static 変数が前回の値のまま残るため、ここで明示的に初期化する。
     /// </summary>
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void ResetSessionState()
@@ -78,7 +83,7 @@ public sealed class GameFlowBootstrap : MonoBehaviour
     }
 
     /// <summary>
-    /// Scene に手動配置しなくても game flow bootstrap を 1 つだけ作る。
+    /// シーンに手動で置かなくても、画面遷移の管理役を自動で 1 つだけ作る。
     /// </summary>
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void CreateBootstrap()
@@ -115,6 +120,9 @@ public sealed class GameFlowBootstrap : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 現在のシーンに応じて、ボタン入力の受け付けやクリア判定を行う。
+    /// </summary>
     private void Update()
     {
         var sceneName = SceneManager.GetActiveScene().name;
@@ -155,6 +163,7 @@ public sealed class GameFlowBootstrap : MonoBehaviour
 
         if (sceneName == GameplaySceneName)
         {
+            // シーン読み込み直後の 2 フレームはクリア判定を行わず、ECS 側の状態が新しいシーンに切り替わるのを待つ。
             if (framesSinceSceneLoaded < 2)
             {
                 framesSinceSceneLoaded++;
@@ -172,6 +181,9 @@ public sealed class GameFlowBootstrap : MonoBehaviour
         RefreshSceneUi();
     }
 
+    /// <summary>
+    /// ステージをクリアしていたら、リザルト画面へ移る（同じシーンで 2 回読み込まないようにする）。
+    /// </summary>
     private void LoadResultSceneWhenStageCleared()
     {
         if (hasLoadedResultForCurrentScene || !TryCreateStageClearQuery() || stageClearQuery.IsEmpty)
@@ -188,6 +200,9 @@ public sealed class GameFlowBootstrap : MonoBehaviour
         SceneManager.LoadScene(ResultSceneName);
     }
 
+    /// <summary>
+    /// クリア状態を読むための Query を作る。World が作り直されていたら Query も作り直す。
+    /// </summary>
     private bool TryCreateStageClearQuery()
     {
         var world = World.DefaultGameObjectInjectionWorld;
@@ -229,6 +244,9 @@ public sealed class GameFlowBootstrap : MonoBehaviour
         queryWorld = null;
     }
 
+    /// <summary>
+    /// 現在のシーンに合わせて、タイトル UI・リザルト UI の表示を切り替える。
+    /// </summary>
     private void RefreshSceneUi()
     {
         var sceneName = SceneManager.GetActiveScene().name;
@@ -263,6 +281,9 @@ public sealed class GameFlowBootstrap : MonoBehaviour
         Object.DontDestroyOnLoad(canvasObject);
     }
 
+    /// <summary>
+    /// タイトル画面とリザルト画面の UI を生成する（初回のみ）。
+    /// </summary>
     private void EnsureSceneUi()
     {
         if (startRoot != null && resultRoot != null)
@@ -297,6 +318,9 @@ public sealed class GameFlowBootstrap : MonoBehaviour
         resultButtonText.text = "スタートへ戻る";
     }
 
+    /// <summary>
+    /// 画面サイズに合わせて、パネルとボタンの位置を計算し直す（ウィンドウサイズの変更に対応するため毎フレーム行う）。
+    /// </summary>
     private void UpdateSceneUiLayout()
     {
         var width = Mathf.Max(1, Screen.width);
@@ -332,6 +356,9 @@ public sealed class GameFlowBootstrap : MonoBehaviour
         SetTopLeftRect(buttonImage.rectTransform, (panelWidth - ButtonSize.x) * 0.5f, panelHeight - 96f, ButtonSize.x, ButtonSize.y);
     }
 
+    /// <summary>
+    /// ボタンのクリック判定に使う矩形を、画面左上を原点とした座標で計算する。
+    /// </summary>
     private static Rect CalculateButtonRect(float panelX, float panelY, float panelWidth)
     {
         return new Rect(
@@ -353,6 +380,9 @@ public sealed class GameFlowBootstrap : MonoBehaviour
         resultRoot.gameObject.SetActive(showResultUi);
     }
 
+    /// <summary>
+    /// 決定操作（Enter・Space・ボタンのクリック）が行われたかを判定する。
+    /// </summary>
     private static bool WasPrimaryActionPressed(Rect buttonRect)
     {
         var keyboard = Keyboard.current;
@@ -370,12 +400,16 @@ public sealed class GameFlowBootstrap : MonoBehaviour
             return false;
         }
 
+        // マウス座標は左下が原点なので、ボタンの矩形に合わせて左上原点に変換する。
         var position = mouse.position.ReadValue();
         var topLeftPosition = new Vector2(position.x, Screen.height - position.y);
 
         return buttonRect.Contains(topLeftPosition);
     }
 
+    /// <summary>
+    /// マウスがボタンの上にあるときは、ボタンの色を変える。
+    /// </summary>
     private static void UpdateMenuButtonState(Image buttonImage, Rect buttonRect)
     {
         if (buttonImage == null)
@@ -465,6 +499,9 @@ public sealed class GameFlowBootstrap : MonoBehaviour
         return text;
     }
 
+    /// <summary>
+    /// 親の左上を原点として、位置と大きさを設定する。
+    /// </summary>
     private static void SetTopLeftRect(RectTransform rectTransform, float x, float y, float width, float height)
     {
         rectTransform.anchorMin = new Vector2(0f, 1f);

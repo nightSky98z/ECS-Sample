@@ -5,7 +5,9 @@ using Unity.Transforms;
 using UnityEngine;
 
 /// <summary>
-/// Cell prefab 内に、壊れない装飾用 static mesh の local 配置を seed 付きで作る Authoring。
+/// セルの Prefab 内に、木や岩などの静的メッシュを手続き的に（PCG で）配置する Authoring。
+/// 配置は seed から決まるため、同じ設定なら毎回同じ配置になる。
+/// 配置の計算は Bake 時に済ませて Buffer に保存しておき、ゲーム中は生成するだけにしている（実行時の計算コストを減らすため）。
 /// </summary>
 public partial class PCGStaticMeshAuthoring : MonoBehaviour
 {
@@ -43,6 +45,9 @@ public partial class PCGStaticMeshAuthoring : MonoBehaviour
     [Tooltip("有効にすると各配置にランダムなヨー回転を加える。")]
     private bool RandomizeYaw = true;
 
+    /// <summary>
+    /// Inspector で入力された値を、有効な範囲に収める。
+    /// </summary>
     private void OnValidate()
     {
         MigrateLegacyStaticMeshPrefabs();
@@ -56,6 +61,9 @@ public partial class PCGStaticMeshAuthoring : MonoBehaviour
         ScaleRange = new Vector2(scaleRange.x, scaleRange.y);
     }
 
+    /// <summary>
+    /// 古い形式（Prefab の配列のみ）の設定を、新しい形式（候補と重み）に移す。
+    /// </summary>
     private void MigrateLegacyStaticMeshPrefabs()
     {
         if ((StaticMeshEntries != null && StaticMeshEntries.Length > 0) ||
@@ -84,6 +92,9 @@ public partial class PCGStaticMeshAuthoring : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 実際に使う候補を返す（古い形式の設定しかない場合も考慮する）。
+    /// </summary>
     private PCGStaticMeshPrefabEntry[] GetEffectiveStaticMeshEntries()
     {
         if (StaticMeshEntries != null && StaticMeshEntries.Length > 0)
@@ -115,6 +126,9 @@ public partial class PCGStaticMeshAuthoring : MonoBehaviour
         return entries;
     }
 
+    /// <summary>
+    /// 重みに比例した確率で Prefab を 1 つ選ぶ（エディタのプレビュー用）。
+    /// </summary>
     private static GameObject SelectWeightedPrefab(
         List<PCGStaticMeshPrefabCandidate> prefabs,
         ref Unity.Mathematics.Random random)
@@ -158,7 +172,8 @@ public partial class PCGStaticMeshAuthoring : MonoBehaviour
     }
 
     /// <summary>
-    /// PCGStaticMeshAuthoring の設定を、Cell instance が展開する local 配置バッファへ変換する。
+    /// 配置を計算し、セル内のローカル座標の一覧（PCGStaticMeshLocalInstance の Buffer）として保存する。
+    /// ゲーム中は PCGStaticMeshLocalSpawnSystem がこの一覧をもとに生成する。
     /// </summary>
     private sealed class PCGStaticMeshBaker : Baker<PCGStaticMeshAuthoring>
     {
@@ -229,7 +244,7 @@ public partial class PCGStaticMeshAuthoring : MonoBehaviour
 }
 
 /// <summary>
-/// Inspector で編集する PCG static mesh prefab と抽選重み。
+/// Inspector で編集する、配置する Prefab と選ばれやすさ（重み）。
 /// </summary>
 [System.Serializable]
 public struct PCGStaticMeshPrefabEntry
@@ -243,67 +258,96 @@ public struct PCGStaticMeshPrefabEntry
 }
 
 /// <summary>
-/// Bake / preview 内部で使う有効 prefab 候補。
+/// Bake とプレビューで使う、有効な候補（Prefab と重み）。
 /// </summary>
 public struct PCGStaticMeshPrefabCandidate
 {
+    /// <summary>配置する Prefab。</summary>
     public GameObject Prefab;
+
+    /// <summary>選ばれやすさ（重み）。</summary>
     public float Weight;
 }
 
 /// <summary>
-/// Runtime で Cell instance が展開する local static mesh 配置。
+/// セル内に配置する静的メッシュ 1 つ分の情報（セルからの相対位置）。Bake 時に作られ、セルの Entity に保存される。
 /// </summary>
 [InternalBufferCapacity(32)]
 public struct PCGStaticMeshLocalInstance : IBufferElementData
 {
+    /// <summary>生成する Prefab。</summary>
     public Entity Prefab;
+
+    /// <summary>セルから見た位置。</summary>
     public float3 LocalPosition;
+
+    /// <summary>セルから見た回転。</summary>
     public quaternion LocalRotation;
+
+    /// <summary>大きさ（全軸共通）。</summary>
     public float Scale;
 }
 
 /// <summary>
-/// PCG static mesh の 1 配置分の入力。
+/// 配置を計算するための設定（配置する範囲と、大きさ・回転のばらつき）。
 /// </summary>
 public struct PCGStaticMeshPlacementSettings
 {
+    /// <summary>配置する範囲の中心。</summary>
     public float3 Center;
+
+    /// <summary>配置する範囲の回転。</summary>
     public quaternion Rotation;
+
+    /// <summary>配置する範囲の大きさ（XZ）。</summary>
     public float2 AreaSize;
+
+    /// <summary>大きさの範囲（最小, 最大）。</summary>
     public float2 ScaleRange;
+
+    /// <summary>true なら Y 軸回りにランダムに回転させる。</summary>
     public bool RandomizeYaw;
 }
 
 /// <summary>
-/// PCG static mesh の 1 配置分の結果。
+/// 1 つ分の配置の計算結果。
 /// </summary>
 public struct PCGStaticMeshPlacement
 {
+    /// <summary>位置。</summary>
     public float3 Position;
+
+    /// <summary>回転。</summary>
     public quaternion Rotation;
+
+    /// <summary>大きさ（全軸共通）。</summary>
     public float Scale;
 }
 
 /// <summary>
-/// Unity Physics の static body に渡す rigid transform と uniform scale。
+/// Unity Physics の Collider に渡す位置・回転・大きさ（Unity Physics は全軸共通の大きさしか扱えない）。
 /// </summary>
 public struct PCGStaticMeshPhysicsTransform
 {
+    /// <summary>位置。</summary>
     public float3 Position;
+
+    /// <summary>回転。</summary>
     public quaternion Rotation;
+
+    /// <summary>大きさ（全軸共通）。</summary>
     public float Scale;
 }
 
 /// <summary>
-/// PCG static mesh の Bake と preview が共有する配置計算。
+/// 配置の計算処理。Bake とエディタのプレビューで同じ計算を使い、プレビューと実際の配置が一致するようにしている。
 /// </summary>
 public static class PCGStaticMeshUtility
 {
     private const float MinPhysicsScale = 0.000001f;
 
     /// <summary>
-    /// 生成数を bake に使える非負値へ正規化する。
+    /// 生成数を 0 以上に補正する。
     /// </summary>
     public static int GetBakeInstanceCount(int instanceCount)
     {
@@ -311,7 +355,7 @@ public static class PCGStaticMeshUtility
     }
 
     /// <summary>
-    /// Unity.Mathematics.Random が受け付ける非ゼロ seed に正規化する。
+    /// seed を 0 以外の値にする（Unity.Mathematics.Random は 0 を受け付けないため）。
     /// </summary>
     public static uint NormalizeSeed(int seed)
     {
@@ -324,7 +368,7 @@ public static class PCGStaticMeshUtility
     }
 
     /// <summary>
-    /// scale 範囲を昇順の非負値へ正規化する。
+    /// 大きさの範囲を、0 以上かつ「最小 ≦ 最大」になるように補正する。
     /// </summary>
     public static float2 NormalizeScaleRange(float2 scaleRange)
     {
@@ -335,7 +379,7 @@ public static class PCGStaticMeshUtility
     }
 
     /// <summary>
-    /// Prefab 抽選 weight を非負値へ正規化する。
+    /// 重みを 0 以上に補正する。
     /// </summary>
     public static float NormalizeWeight(float weight)
     {
@@ -343,7 +387,7 @@ public static class PCGStaticMeshUtility
     }
 
     /// <summary>
-    /// 重み付き抽選に使う正の weight 合計を返す。
+    /// 重みの合計を返す（0 以下の重みは無視する）。
     /// </summary>
     public static float CalculateTotalWeight(float[] weights)
     {
@@ -363,7 +407,7 @@ public static class PCGStaticMeshUtility
     }
 
     /// <summary>
-    /// 0 以上 totalWeight 未満の roll から、正の weight を持つ index を選ぶ。
+    /// 0 以上・重みの合計未満の乱数値から、対応する候補の番号を選ぶ。
     /// </summary>
     public static int SelectWeightedIndex(float[] weights, float roll)
     {
@@ -400,7 +444,7 @@ public static class PCGStaticMeshUtility
     }
 
     /// <summary>
-    /// random state を進めて、正の weight を持つ index を選ぶ。
+    /// 乱数を使って、重みに比例した確率で候補の番号を選ぶ。
     /// </summary>
     public static int SelectWeightedIndex(
         float[] weights,
@@ -417,7 +461,7 @@ public static class PCGStaticMeshUtility
     }
 
     /// <summary>
-    /// Authoring 値から配置計算用の設定を作る。
+    /// Inspector の設定値から、配置計算用の設定を作る。
     /// </summary>
     public static PCGStaticMeshPlacementSettings CreatePlacementSettings(
         float3 center,
@@ -437,7 +481,7 @@ public static class PCGStaticMeshUtility
     }
 
     /// <summary>
-    /// world 位置から、所属する XZ cell 座標を返す。
+    /// ワールド座標から、その位置を含むセルの座標を返す。
     /// </summary>
     public static int2 CalculateCellCoord(float3 position, float cellSize)
     {
@@ -449,7 +493,7 @@ public static class PCGStaticMeshUtility
     }
 
     /// <summary>
-    /// Chebyshev 距離で cell 半径内かどうかを返す。
+    /// セルが指定した半径内にあるかを返す（チェビシェフ距離）。
     /// </summary>
     public static bool IsInsideCellRadius(int2 center, int2 coord, int radius)
     {
@@ -460,7 +504,7 @@ public static class PCGStaticMeshUtility
     }
 
     /// <summary>
-    /// cell 座標と world seed から、非ゼロの deterministic seed を作る。
+    /// セルの座標とワールドの seed から、セルごとの seed を作る（同じ座標なら常に同じ値）。
     /// </summary>
     public static uint CreateCellSeed(int worldSeed, int2 coord)
     {
@@ -478,7 +522,7 @@ public static class PCGStaticMeshUtility
     }
 
     /// <summary>
-    /// 1 cell 内の配置計算設定を作る。
+    /// セル 1 つ分の範囲を配置範囲とする設定を作る。
     /// </summary>
     public static PCGStaticMeshPlacementSettings CreateCellPlacementSettings(
         int2 coord,
@@ -500,11 +544,11 @@ public static class PCGStaticMeshUtility
     }
 
     /// <summary>
-    /// seed 付き random から 1 配置分の transform を作る。
+    /// 乱数を使って、1 つ分の配置（位置・回転・大きさ）を決める。
     /// </summary>
-    /// <param name="settings">Authoring から作った配置設定。</param>
-    /// <param name="random">呼び出し側が所有する random state。呼び出しごとに前進する。</param>
-    /// <returns>配置位置、回転、uniform scale。</returns>
+    /// <param name="settings">配置の設定。</param>
+    /// <param name="random">乱数。呼び出すたびに状態が進む。</param>
+    /// <returns>位置・回転・大きさ。</returns>
     public static PCGStaticMeshPlacement CreatePlacement(
         PCGStaticMeshPlacementSettings settings,
         ref Unity.Mathematics.Random random)
@@ -533,7 +577,7 @@ public static class PCGStaticMeshUtility
     }
 
     /// <summary>
-    /// Cell root の world 位置と local PCG 配置から、spawn する static mesh の world transform を作る。
+    /// セルのワールド座標と、セルから見た相対的な配置から、生成する静的メッシュのワールド座標での Transform を作る。
     /// </summary>
     public static LocalTransform CreateWorldPlacementTransform(
         LocalTransform cellTransform,
@@ -546,7 +590,7 @@ public static class PCGStaticMeshUtility
     }
 
     /// <summary>
-    /// LODGroup の screenRelativeTransitionHeight から Entities Graphics 用の距離を作る。
+    /// LODGroup の「画面に対する高さの割合」から、Entities Graphics で使う切り替え距離を計算する。
     /// </summary>
     public static float CalculateLodDistance(
         float worldSpaceSize,
@@ -561,7 +605,7 @@ public static class PCGStaticMeshUtility
     }
 
     /// <summary>
-    /// TRS 行列の各軸スケールから、Unity Physics が扱える uniform scale を選ぶ。
+    /// 変換行列の各軸の大きさのうち、最も大きいものを返す（Unity Physics は全軸共通の大きさしか扱えないため）。
     /// </summary>
     public static float GetMaxAbsAxisScale(Matrix4x4 matrix)
     {
@@ -573,7 +617,7 @@ public static class PCGStaticMeshUtility
     }
 
     /// <summary>
-    /// MeshCollider 用の LocalTransform へ、配置後の行列を分解する。
+    /// 変換行列を、Collider 用の位置・回転・大きさに分解する。
     /// </summary>
     public static PCGStaticMeshPhysicsTransform DecomposePhysicsTransform(Matrix4x4 matrix)
     {
@@ -603,7 +647,7 @@ public static class PCGStaticMeshUtility
     }
 
     /// <summary>
-    /// Mesh bounds から non-readable mesh 用の conservative box collider geometry を作る。
+    /// メッシュの頂点が読み取れない場合に使う、メッシュ全体を囲む箱型の Collider の形を作る。
     /// </summary>
     public static Unity.Physics.BoxGeometry CreateBoxGeometry(Bounds bounds)
     {
@@ -617,7 +661,7 @@ public static class PCGStaticMeshUtility
     }
 
     /// <summary>
-    /// UnityEngine.CapsuleCollider の center/radius/height/direction から Unity Physics の capsule geometry を作る。
+    /// CapsuleCollider の設定（中心・半径・高さ・向き）から、Unity Physics のカプセル型の形を作る。
     /// </summary>
     public static Unity.Physics.CapsuleGeometry CreateCapsuleGeometry(
         float3 center,
@@ -638,6 +682,9 @@ public static class PCGStaticMeshUtility
         };
     }
 
+    /// <summary>
+    /// CapsuleCollider.direction（0 = X, 1 = Y, 2 = Z）を軸のベクトルに変換する。
+    /// </summary>
     private static float3 GetCapsuleAxis(int direction)
     {
         if (direction == 0)

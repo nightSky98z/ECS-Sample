@@ -3,7 +3,8 @@ using UnityEditor;
 using UnityEngine;
 
 /// <summary>
-/// HealthBarAnchorAuthoring の Prefab / Scene View preview。
+/// HealthBarAnchorAuthoring のエディタ用プレビュー。
+/// Prefab やシーンを編集しているときに、HP バーの位置と大きさを Scene ビューに表示する。
 /// </summary>
 public sealed partial class HealthBarAnchorAuthoring
 {
@@ -26,7 +27,7 @@ public sealed partial class HealthBarAnchorAuthoring
     }
 
     /// <summary>
-    /// RectTransform.sizeDelta を Scene View 上の screen-space preview として描画する。
+    /// HP バーの見た目を Scene ビュー上に描画する（画面上のピクセルサイズで表示）。
     /// </summary>
     private void DrawHealthBarPreview(bool selected)
     {
@@ -62,6 +63,9 @@ public sealed partial class HealthBarAnchorAuthoring
         return GetFallbackSize();
     }
 
+    /// <summary>
+    /// 背景・HP 部分（75%）・枠線を描いて、実際の HP バーに近い見た目を表示する。
+    /// </summary>
     private static void DrawGuiHealthBar(Rect rect)
     {
         EditorGUI.DrawRect(rect, PreviewBackFaceColor);
@@ -92,7 +96,8 @@ public sealed partial class HealthBarAnchorAuthoring
 }
 
 /// <summary>
-/// HealthBarAnchorAuthoring の編集操作を Transform / RectTransform へ直接反映する Editor。
+/// HealthBarAnchorAuthoring の Inspector と Scene ビューの操作をカスタマイズするエディタ。
+/// 位置と大きさを Inspector から直接編集でき、Undo にも対応している。
 /// </summary>
 [CustomEditor(typeof(HealthBarAnchorAuthoring))]
 public sealed class HealthBarAnchorAuthoringEditor : Editor
@@ -116,6 +121,9 @@ public sealed class HealthBarAnchorAuthoringEditor : Editor
         serializedObject.ApplyModifiedProperties();
     }
 
+    /// <summary>
+    /// Scene ビューに移動ハンドルを表示し、ドラッグで HP バーの位置を調整できるようにする。
+    /// </summary>
     private void OnSceneGUI()
     {
         var authoring = (HealthBarAnchorAuthoring)target;
@@ -139,7 +147,7 @@ public sealed class HealthBarAnchorAuthoringEditor : Editor
     }
 
     /// <summary>
-    /// 親 prefab root から見た local position を明示的に編集する。
+    /// 親（Prefab のルート）から見たローカル座標を編集する。
     /// </summary>
     private static void DrawPositionField(Transform anchorTransform)
     {
@@ -158,7 +166,7 @@ public sealed class HealthBarAnchorAuthoringEditor : Editor
     }
 
     /// <summary>
-    /// RectTransform がある場合は sizeDelta、ない場合は fallback size を編集する。
+    /// 大きさを編集する。RectTransform があればその sizeDelta を、なければ FallbackSize を編集する。
     /// </summary>
     private void DrawSizeField(HealthBarAnchorAuthoring authoring)
     {

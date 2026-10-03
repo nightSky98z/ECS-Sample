@@ -3,7 +3,7 @@ using Unity.Mathematics;
 using UnityEngine;
 
 /// <summary>
-/// Authoring 側の SensorCollider SphereCollider を GroundSensor に変換する。
+/// Prefab 内の接地判定用の設定を GroundSensor Component に変換する（Baker から呼ばれる）。
 /// </summary>
 internal static class GroundSensorAuthoringUtility
 {
@@ -11,11 +11,13 @@ internal static class GroundSensorAuthoringUtility
     private const float DefaultSkin = 0.03f;
 
     /// <summary>
-    /// authoring の子から接地センサー用 SphereCollider を検索する。
+    /// 子オブジェクトから接地判定用の設定を探し、GroundSensor を作る。
+    /// 1. GroundSensorAuthoring があればそれを使う
+    /// 2. なければ、SensorCollider タグが付いた SphereCollider を使う
     /// </summary>
-    /// <param name="authoring">検索元の authoring component。戻り値の GroundSensor は root local 空間で保存される。</param>
-    /// <param name="sensor">見つかった SphereCollider から作った GroundSensor。</param>
-    /// <returns>SensorCollider タグの SphereCollider が見つかった場合は true。</returns>
+    /// <param name="authoring">検索を始めるオブジェクト。GroundSensor はこのオブジェクトのローカル座標で保存される。</param>
+    /// <param name="sensor">作成した GroundSensor。</param>
+    /// <returns>判定用の設定が見つかった場合は true。</returns>
     public static bool TryCreateGroundSensor(MonoBehaviour authoring, out GroundSensor sensor)
     {
         sensor = default;
@@ -29,6 +31,7 @@ internal static class GroundSensorAuthoringUtility
             var centerWorld = groundSensorAuthoring.transform.position;
             var localCenter = rootWorldToLocal.MultiplyPoint3x4(centerWorld);
             var sensorScale = GroundSensorAuthoringMath.GetMaxAbsScale(groundSensorAuthoring.transform.lossyScale);
+            // 実行時にルートのスケールが掛けられるため、ここではルートのスケールで割っておく。
             var rootScale = GroundSensorAuthoringMath.GetMaxAbsScale(rootTransform.lossyScale);
 
             if (rootScale <= 0.000001f)
@@ -80,7 +83,7 @@ internal static class GroundSensorAuthoringUtility
 }
 
 /// <summary>
-/// Ground タグの MeshCollider を DOTS Physics の接地対象として分類する。
+/// Ground タグが付いた MeshCollider に GroundTag を追加し、接地判定の対象にする。
 /// </summary>
 internal sealed class GroundMeshColliderBaker : Baker<MeshCollider>
 {

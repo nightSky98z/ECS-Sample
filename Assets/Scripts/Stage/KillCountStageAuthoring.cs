@@ -3,7 +3,7 @@ using Unity.Mathematics;
 using UnityEngine;
 
 /// <summary>
-/// SubScene に置く討伐数ステージ設定。
+/// 「規定数のモンスターを倒すとクリア」のステージの設定。サブシーンに置く。
 /// </summary>
 public sealed class KillCountStageAuthoring : MonoBehaviour
 {
@@ -17,6 +17,9 @@ public sealed class KillCountStageAuthoring : MonoBehaviour
     [Tooltip("初期討伐数。")]
     private int InitialKillCount = 0;
 
+    /// <summary>
+    /// Inspector で入力された値を、有効な範囲に収める。
+    /// </summary>
     private void OnValidate()
     {
         TargetKillCount = math.max(0, TargetKillCount);
@@ -25,6 +28,9 @@ public sealed class KillCountStageAuthoring : MonoBehaviour
 
     private sealed class Baker : Baker<KillCountStageAuthoring>
     {
+        /// <summary>
+        /// 討伐数の状態・進み具合・クリア状態の Component を追加する。
+        /// </summary>
         public override void Bake(KillCountStageAuthoring authoring)
         {
             var entity = GetEntity(TransformUsageFlags.None);

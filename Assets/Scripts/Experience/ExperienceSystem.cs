@@ -3,7 +3,8 @@ using Unity.Entities;
 using Unity.Mathematics;
 
 /// <summary>
-/// 経験値バランスの固定値。1 回のゲームは 7 stage、6 stage clear で Lv90 付近を調整目標にする。
+/// 経験値バランスの定数。
+/// 1 回のゲームは 7 ステージ構成で、6 ステージをクリアした時点で Lv90 前後になるように調整している。
 /// </summary>
 public static class ExperienceConstants
 {
@@ -28,25 +29,25 @@ public static class ExperienceConstants
     public const int BaseRequiredExperience = 50;
 
     /// <summary>
-    /// 各レベルで必要経験値へ掛ける既定倍率。
+    /// レベルが 1 上がるごとに、必要経験値にかける倍率（既定値）。
     /// </summary>
     public const float DefaultRequiredExperienceMultiplierPerLevel = 2f;
 
     /// <summary>
-    /// Player level 1 つごとの既定スキルダメージ増加率。
+    /// プレイヤーのレベルが 1 上がるごとに増えるスキルダメージ倍率（既定値）。
     /// </summary>
     public const float DefaultSkillDamageRatePerLevel = 0.02f;
 }
 
 /// <summary>
-/// 経験値と level up の純粋計算。
-///
-/// System はこの helper の結果を component に書き戻すだけにし、経験値曲線の境界をここへ集約する。
+/// 経験値とレベルアップの計算。
+/// 計算を System から切り離した static 関数にまとめ、System は結果を Component に書き戻すだけにしている。
+/// そのため、経験値曲線の調整や境界値（最大レベル・オーバーフロー）のテストをこのクラスだけで行える。
 /// </summary>
 public static class ExperienceMath
 {
     /// <summary>
-    /// 既定の必要経験値曲線で Lv1 の経験値状態を作る。
+    /// 既定の成長曲線で、Lv1・経験値 0 の状態を作る。
     /// </summary>
     public static ExperienceComponent CreateInitialExperience()
     {
@@ -54,9 +55,9 @@ public static class ExperienceMath
     }
 
     /// <summary>
-    /// 指定 config で Lv1 の経験値状態を作る。
+    /// 指定した成長曲線で、Lv1・経験値 0 の状態を作る。
     /// </summary>
-    /// <param name="config">必要経験値曲線。</param>
+    /// <param name="config">成長曲線。</param>
     /// <returns>経験値 0、Lv1 の状態。</returns>
     public static ExperienceComponent CreateInitialExperience(ExperienceLevelConfig config)
     {
@@ -69,7 +70,7 @@ public static class ExperienceMath
     }
 
     /// <summary>
-    /// プロジェクト既定の必要経験値曲線を返す。
+    /// 既定の成長曲線を返す。
     /// </summary>
     public static ExperienceLevelConfig CreateDefaultLevelConfig()
     {
@@ -81,7 +82,7 @@ public static class ExperienceMath
     }
 
     /// <summary>
-    /// 既定 config で、指定 level から次 level へ進むための必要経験値を返す。
+    /// 既定の成長曲線で、指定したレベルから次のレベルに上がるための必要経験値を返す。
     /// </summary>
     public static int CalculateRequiredExperienceForNextLevel(int level)
     {
@@ -89,11 +90,12 @@ public static class ExperienceMath
     }
 
     /// <summary>
-    /// 指定 level から次 level へ進むための必要経験値を返す。
+    /// 指定したレベルから次のレベルに上がるための必要経験値を返す。
+    /// 必要経験値は「基本値 × 倍率^(レベル-1)」で増えていく。
     /// </summary>
-    /// <param name="level">現在 level。範囲外は 1..MaxLevel に丸める。</param>
-    /// <param name="config">必要経験値曲線。</param>
-    /// <returns>MaxLevel 到達後は 0、それ以外は 1 以上。</returns>
+    /// <param name="level">現在のレベル。範囲外の値は 1〜MaxLevel に収める。</param>
+    /// <param name="config">成長曲線。</param>
+    /// <returns>最大レベルなら 0、それ以外は 1 以上。</returns>
     public static int CalculateRequiredExperienceForNextLevel(
         int level,
         ExperienceLevelConfig config)
@@ -110,6 +112,7 @@ public static class ExperienceMath
 
         for (var levelIndex = 1; levelIndex < safeLevel; levelIndex++)
         {
+            // 指数的に増えるため、int の上限を超える前に打ち切る。
             if (requiredExperience > int.MaxValue / multiplier)
             {
                 return int.MaxValue;
@@ -122,7 +125,7 @@ public static class ExperienceMath
     }
 
     /// <summary>
-    /// 既定 config で経験値を加算する。level up の消費処理は行わない。
+    /// 既定の成長曲線で経験値を加算する（レベルアップ処理は行わない）。
     /// </summary>
     public static ExperienceComponent AddExperience(ExperienceComponent experience, int amount)
     {
@@ -130,12 +133,12 @@ public static class ExperienceMath
     }
 
     /// <summary>
-    /// 経験値を加算する。level up の消費処理は LevelUpSystem 側で別に行う。
+    /// 経験値を加算する。レベルアップ処理は LevelUpSystem が別に行う。
     /// </summary>
-    /// <param name="experience">加算前の経験値状態。</param>
-    /// <param name="amount">加算量。0 以下は無視する。</param>
-    /// <param name="config">必要経験値曲線。</param>
-    /// <returns>加算後の経験値状態。</returns>
+    /// <param name="experience">加算前の状態。</param>
+    /// <param name="amount">加算する量。0 以下は無視する。</param>
+    /// <param name="config">成長曲線。</param>
+    /// <returns>加算後の状態。</returns>
     public static ExperienceComponent AddExperience(
         ExperienceComponent experience,
         int amount,
@@ -148,6 +151,7 @@ public static class ExperienceMath
             return result;
         }
 
+        // long で計算し、int の上限を超えないようにする。
         var nextExperience = (long)result.CurrentExperience + amount;
 
         result.CurrentExperience = nextExperience > int.MaxValue
@@ -158,7 +162,7 @@ public static class ExperienceMath
     }
 
     /// <summary>
-    /// 既定 config で、現在経験値から可能な限り level up を進める。
+    /// 既定の成長曲線で、貯まっている経験値の分だけレベルアップさせる。
     /// </summary>
     public static ExperienceComponent ProcessLevelUps(ExperienceComponent experience)
     {
@@ -166,11 +170,11 @@ public static class ExperienceMath
     }
 
     /// <summary>
-    /// 現在経験値から可能な限り level up を進める。
+    /// 貯まっている経験値の分だけレベルアップさせる。一度に大量の経験値を得た場合は、複数レベル上がる。
     /// </summary>
-    /// <param name="experience">処理前の経験値状態。</param>
-    /// <param name="config">必要経験値曲線。</param>
-    /// <returns>level up 後の経験値状態。</returns>
+    /// <param name="experience">処理前の状態。</param>
+    /// <param name="config">成長曲線。</param>
+    /// <returns>レベルアップ後の状態。</returns>
     public static ExperienceComponent ProcessLevelUps(
         ExperienceComponent experience,
         ExperienceLevelConfig config)
@@ -197,7 +201,7 @@ public static class ExperienceMath
     }
 
     /// <summary>
-    /// Monster の経験値報酬を非負値へ正規化する。
+    /// モンスターの経験値報酬を 0 以上に収める。
     /// </summary>
     public static int NormalizeReward(int reward)
     {
@@ -205,7 +209,7 @@ public static class ExperienceMath
     }
 
     /// <summary>
-    /// Player level に合わせて最大 HP を再計算し、増えた最大 HP 分だけ現在 HP も増やす。
+    /// プレイヤーのレベルに合わせて最大 HP を再計算し、最大 HP が増えた分だけ現在の HP も回復させる。
     /// </summary>
     public static HealthComponent ApplyPlayerLevelToHealth(
         HealthComponent health,
@@ -223,7 +227,7 @@ public static class ExperienceMath
     }
 
     /// <summary>
-    /// Player level から最大 HP を計算する。
+    /// プレイヤーのレベルから最大 HP を計算する。
     /// </summary>
     public static int CalculateMaxHpForLevel(PlayerLevelStats stats, int level)
     {
@@ -236,7 +240,7 @@ public static class ExperienceMath
     }
 
     /// <summary>
-    /// Player level からスキルダメージ倍率を計算する。
+    /// プレイヤーのレベルからスキルダメージ倍率を計算する（Lv1 で 1 倍）。
     /// </summary>
     public static float CalculatePlayerSkillDamageRate(PlayerLevelStats stats, int level)
     {
@@ -251,6 +255,9 @@ public static class ExperienceMath
         return NormalizeExperience(experience, CreateDefaultLevelConfig());
     }
 
+    /// <summary>
+    /// レベルを 1〜MaxLevel に収め、必要経験値を成長曲線から計算し直す。
+    /// </summary>
     private static ExperienceComponent NormalizeExperience(
         ExperienceComponent experience,
         ExperienceLevelConfig config)
@@ -277,9 +284,9 @@ public static class ExperienceMath
 }
 
 /// <summary>
-/// 加算済み経験値から、必要量を超えた分だけ level up する。
-///
-/// MonsterDestroySystem は経験値加算だけを行い、この System が経験値消費と level up に伴う status 更新を担当する。
+/// 貯まった経験値が必要量を超えていれば、レベルアップさせる。
+/// 役割分担：MonsterDestroySystem は経験値を加算するだけで、
+/// レベルアップの判定と、それに伴うステータス（最大 HP など）の更新はこの System が担当する。
 /// </summary>
 [UpdateInGroup(typeof(SimulationSystemGroup))]
 [UpdateAfter(typeof(MonsterDestroySystem))]
@@ -325,6 +332,9 @@ public partial struct LevelUpSystem : ISystem
         }
     }
 
+    /// <summary>
+    /// 新しいレベルに合わせて、プレイヤーの最大 HP を更新する。
+    /// </summary>
     private static void ApplyPlayerLevelStats(
         Entity entity,
         int level,

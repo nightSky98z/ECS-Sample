@@ -2,7 +2,8 @@ using Unity.Mathematics;
 using UnityEngine;
 
 /// <summary>
-/// Character prefab 内で HP bar の頭上位置と UI size を指定する marker。
+/// キャラクターの Prefab 内で、HP バーを表示する位置と大きさを指定するための目印。
+/// この GameObject の位置が、HP バーの表示位置になる。
 /// </summary>
 public sealed partial class HealthBarAnchorAuthoring : MonoBehaviour
 {
@@ -10,6 +11,9 @@ public sealed partial class HealthBarAnchorAuthoring : MonoBehaviour
     [SerializeField]
     private Vector2 FallbackSize = new Vector2(100f, 12f);
 
+    /// <summary>
+    /// RectTransform がないときに使う HP バーの大きさを返す。
+    /// </summary>
     public Vector2 GetFallbackSize()
     {
         return HealthBarAnchorAuthoringUtility.NormalizeSize(FallbackSize);
@@ -17,7 +21,7 @@ public sealed partial class HealthBarAnchorAuthoring : MonoBehaviour
 }
 
 /// <summary>
-/// Character prefab の子 Transform から HealthBarAnchor を作る authoring 補助。
+/// キャラクターの Prefab の子オブジェクトから HealthBarAnchor を作る処理（Baker から呼ばれる）。
 /// </summary>
 public static class HealthBarAnchorAuthoringUtility
 {
@@ -25,11 +29,11 @@ public static class HealthBarAnchorAuthoringUtility
     private static readonly Vector2 DefaultSize = new Vector2(100f, 12f);
 
     /// <summary>
-    /// Prefab 内の marker または HP_Bar 子 object から HP bar anchor を作る。
+    /// Prefab 内の目印（HealthBarAnchorAuthoring）、または「HP_Bar」という名前の子オブジェクトから HealthBarAnchor を作る。
     /// </summary>
-    /// <param name="root">PlayerEntity / MonsterEntity が付いた root Transform。</param>
-    /// <param name="anchor">bake 後に Entity が持つ HP bar anchor。</param>
-    /// <returns>anchor として使える子 object が見つかった場合は true。</returns>
+    /// <param name="root">PlayerEntity / MonsterEntity が付いているルートの Transform。</param>
+    /// <param name="anchor">作成した HealthBarAnchor。</param>
+    /// <returns>目印になる子オブジェクトが見つかった場合は true。</returns>
     public static bool TryCreateHealthBarAnchor(Transform root, out HealthBarAnchor anchor)
     {
         anchor = default;
@@ -58,6 +62,9 @@ public static class HealthBarAnchorAuthoringUtility
         return true;
     }
 
+    /// <summary>
+    /// 大きさが 1 未満にならないように補正する。
+    /// </summary>
     public static Vector2 NormalizeSize(Vector2 size)
     {
         return new Vector2(
@@ -65,6 +72,9 @@ public static class HealthBarAnchorAuthoringUtility
             Mathf.Max(1f, size.y));
     }
 
+    /// <summary>
+    /// ルートから見た目印の相対位置と大きさから HealthBarAnchor を作る。
+    /// </summary>
     private static HealthBarAnchor CreateAnchor(
         Transform root,
         Transform anchorTransform,
@@ -90,6 +100,9 @@ public static class HealthBarAnchorAuthoringUtility
         return NormalizeSize(fallbackSize);
     }
 
+    /// <summary>
+    /// 子孫の中から、指定した名前のオブジェクトを深さ優先で探す。
+    /// </summary>
     private static Transform FindChildByName(Transform root, string childName)
     {
         for (var childIndex = 0; childIndex < root.childCount; childIndex++)

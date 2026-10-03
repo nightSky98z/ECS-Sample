@@ -7,122 +7,123 @@ using UnityEngine;
 using UnityEngine.Serialization;
 
 /// <summary>
-/// Player 周辺に通常 monster を維持する runtime spawn director の設定。
+/// プレイヤーの周囲にモンスターを出現させ続けるための設定。
 /// </summary>
 public struct MonsterSpawnDirectorConfig : IComponentData
 {
     /// <summary>
-    /// 時間スポーンの実行間隔秒。
+    /// 定期出現の間隔（秒）。
     /// </summary>
     public float SpawnIntervalSeconds;
 
     /// <summary>
-    /// 通常の時間スポーン 1 回あたりに要求する monster 数。
+    /// 定期出現 1 回あたりの出現数。
     /// </summary>
     public int SpawnCountPerInterval;
 
     /// <summary>
-    /// この director が維持する通常 monster の最大数。
+    /// 同時に存在できるモンスターの最大数。
     /// </summary>
     public int MaxAliveMonsterCount;
 
     /// <summary>
-    /// プレイヤー近くに維持したい monster 数。
+    /// プレイヤーの近くに保ちたいモンスターの数。
     /// </summary>
     public int NearbyMonsterTargetCount;
 
     /// <summary>
-    /// 近距離 monster 数がこの値を下回ると、遠距離 monster を優先して近くへ recycle する。
+    /// 近くのモンスターがこの数を下回ったら、遠くにいるモンスターを優先して近くに再配置する。
     /// </summary>
     public int NearbyMonsterLowThreshold;
 
     /// <summary>
-    /// 近距離密度維持を確認する間隔秒。時間スポーンとは独立して実行する。
+    /// 近くのモンスターの数を確認する間隔（秒）。定期出現とは別に実行する。
     /// </summary>
     public float NearbyDensityCheckIntervalSeconds;
 
     /// <summary>
-    /// 近距離 monster 数を数える XZ 半径。
+    /// 「近くのモンスター」として数える範囲の半径（XZ 平面）。
     /// </summary>
     public float NearbyMonsterRadius;
 
     /// <summary>
-    /// 新規 spawn / recycle 位置の player からの最小距離。
+    /// 出現・再配置する位置の、プレイヤーからの最小距離。
     /// </summary>
     public float MinSpawnDistanceFromPlayer;
 
     /// <summary>
-    /// 新規 spawn / recycle 位置の player からの最大距離。
+    /// 出現・再配置する位置の、プレイヤーからの最大距離。
     /// </summary>
     public float MaxSpawnDistanceFromPlayer;
 
     /// <summary>
-    /// player の向き側に spawn 位置を寄せる確率。
+    /// プレイヤーの進行方向に出現位置を寄せる度合い（0〜1）。
     /// </summary>
     public float ForwardSpawnBias;
 
     /// <summary>
-    /// この距離より遠い通常 monster を新しい位置へ recycle する。
+    /// プレイヤーからこの距離より遠いモンスターは、近くに再配置する。
     /// </summary>
     public float RecycleDistanceFromPlayer;
 
     /// <summary>
-    /// 遠距離 recycle scan の間隔秒。
+    /// 遠くのモンスターを探す間隔（秒）。
     /// </summary>
     public float RecycleCheckIntervalSeconds;
 
     /// <summary>
-    /// 1 frame で検査する遠距離 monster 数の上限。
+    /// 1 フレームで調べるモンスターの数の上限（負荷を複数フレームに分散させるため）。
     /// </summary>
     public int MaxRecycleChecksPerFrame;
 
     /// <summary>
-    /// 決定的な spawn 位置を作るための seed。
+    /// 出現位置を決める乱数の seed（同じ seed なら同じ結果になる）。
     /// </summary>
     public int WorldSeed;
 }
 
 /// <summary>
-/// ステージ進行度に応じて monster 補充設定を差し替えるデータ。
+/// ステージの進み具合に応じて、出現の間隔と数を切り替えるための設定。
 /// </summary>
 [InternalBufferCapacity(8)]
 public struct MonsterSpawnStageTuningElement : IBufferElementData
 {
     /// <summary>
-    /// この進行度以上で有効になる。
+    /// ステージの進み具合がこの値以上になったら、この設定を使う。
     /// </summary>
     public float MinStageProgress;
 
     /// <summary>
-    /// 有効時に使う時間スポーン間隔秒。
+    /// この設定を使うときの出現間隔（秒）。
     /// </summary>
     public float SpawnIntervalSeconds;
 
     /// <summary>
-    /// 有効時に使う 1 回あたりの spawn 数。
+    /// この設定を使うときの 1 回あたりの出現数。
     /// </summary>
     public int SpawnCountPerInterval;
 }
 
 /// <summary>
-/// Runtime で選択する monster prefab 候補。
+/// 出現させるモンスターの Prefab の候補。
 /// </summary>
 [InternalBufferCapacity(8)]
 public struct MonsterSpawnPrefabElement : IBufferElementData
 {
     /// <summary>
-    /// Instantiate する monster prefab entity。
+    /// モンスターの Prefab（Entity）。
     /// </summary>
     public Entity Prefab;
 
     /// <summary>
-    /// 相対的な抽選重み。0 以下は無効。
+    /// 選ばれやすさ（重み）。0 以下なら選ばれない。
     /// </summary>
     public float Weight;
 }
 
 /// <summary>
-/// 通常 monster を player 周辺だけに維持する Authoring。
+/// プレイヤーの周囲にモンスターを出現させ続ける仕組みの設定を、Inspector から行うための Authoring。
+/// マップは無限に続くため、モンスターはプレイヤーの周囲にだけ存在させ、遠く離れたものは近くに再配置する。
 /// </summary>
 public sealed class MonsterSpawnDirectorAuthoring : MonoBehaviour
 {
@@ -211,6 +212,9 @@ public sealed class MonsterSpawnDirectorAuthoring : MonoBehaviour
     [Tooltip("ステージ進行度で選ぶ実行時の時間スポーン設定。到達済みの MinStageProgress が最も高い設定を使う。")]
     private MonsterSpawnStageTuningEntry[] StageTunings = new MonsterSpawnStageTuningEntry[0];
 
+    /// <summary>
+    /// Inspector で入力された値を、有効な範囲に収める。
+    /// </summary>
     private void OnValidate()
     {
         MigrateLegacyMonsterPrefab();
@@ -245,6 +249,9 @@ public sealed class MonsterSpawnDirectorAuthoring : MonoBehaviour
         RandomSeed = (int)PCGStaticMeshUtility.NormalizeSeed(RandomSeed);
     }
 
+    /// <summary>
+    /// 古い形式（Prefab 1 つだけ）の設定を、新しい形式（複数の候補と重み）に移す。
+    /// </summary>
     private void MigrateLegacyMonsterPrefab()
     {
         if ((MonsterPrefabs != null && MonsterPrefabs.Length > 0) || MonsterPrefab == null)
@@ -296,6 +303,9 @@ public sealed class MonsterSpawnDirectorAuthoring : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 実際に使うモンスターの候補を返す（古い形式の設定しかない場合も考慮する）。
+    /// </summary>
     private MonsterSpawnPrefabEntry[] GetEffectiveMonsterPrefabs()
     {
         if (MonsterPrefabs != null && MonsterPrefabs.Length > 0)
@@ -320,6 +330,9 @@ public sealed class MonsterSpawnDirectorAuthoring : MonoBehaviour
 
     private sealed class Baker : Baker<MonsterSpawnDirectorAuthoring>
     {
+        /// <summary>
+        /// 出現の設定、モンスターの候補、ステージごとの設定を Entity に変換する。
+        /// </summary>
         public override void Bake(MonsterSpawnDirectorAuthoring authoring)
         {
             var monsterPrefabs = authoring.GetEffectiveMonsterPrefabs();
@@ -398,7 +411,7 @@ public sealed class MonsterSpawnDirectorAuthoring : MonoBehaviour
 }
 
 /// <summary>
-/// Inspector で編集する monster prefab と抽選重み。
+/// Inspector で編集する、モンスターの Prefab と選ばれやすさ（重み）。
 /// </summary>
 [System.Serializable]
 public struct MonsterSpawnPrefabEntry
@@ -412,7 +425,7 @@ public struct MonsterSpawnPrefabEntry
 }
 
 /// <summary>
-/// Inspector で編集するステージ進行度別の timed monster spawn 設定。
+/// Inspector で編集する、ステージの進み具合ごとの出現設定。
 /// </summary>
 [System.Serializable]
 public struct MonsterSpawnStageTuningEntry
@@ -431,12 +444,13 @@ public struct MonsterSpawnStageTuningEntry
 }
 
 /// <summary>
-/// Monster spawn director が使う位置計算。
+/// モンスターの出現処理で使う計算（出現位置・出現数・重み付き抽選など）。
+/// System から切り離した static 関数にまとめ、単体テストできるようにしている。
 /// </summary>
 public static class MonsterSpawnDirectorUtility
 {
     /// <summary>
-    /// Player 周辺の spawn ring 内に 1 点を生成する。
+    /// プレイヤーを囲むリング状の範囲から、出現位置を 1 つ選ぶ。
     /// </summary>
     public static float3 CalculateSpawnPosition(
         float3 playerPosition,
@@ -455,7 +469,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// Player からの spawn 距離範囲を非負かつ min <= max に正規化する。
+    /// 出現距離の範囲を、0 以上かつ「最小 ≦ 最大」になるように補正する。
     /// </summary>
     public static void NormalizeSpawnDistanceRange(
         float minDistance,
@@ -471,7 +485,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// Camera の地面可視半径から、画面外に出すための spawn 距離範囲を計算する。
+    /// カメラに映る地面の半径とモンスターの移動速度から、「画面外に出現し、数秒後に画面に入ってくる」距離の範囲を計算する。
     /// </summary>
     public static void CalculateCameraOutsideSpawnDistanceRange(
         float visibleGroundRadius,
@@ -499,7 +513,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// 指定方向の Camera 地面境界から、画面外に出すための spawn 距離範囲を計算する。
+    /// 指定した方向について、画面の端より外側に出現させるための距離の範囲を計算する。
     /// </summary>
     public static void CalculateCameraOutsideSpawnDistanceRange(
         MonsterSpawnCameraBounds cameraBounds,
@@ -530,7 +544,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// Camera 地面境界 sample から、指定方向に見えている最遠距離を返す。
+    /// 画面の端を地面に投影した点から、指定した方向に見えている最も遠い距離を返す。
     /// </summary>
     public static float CalculateVisibleGroundDistanceAlongDirection(
         MonsterSpawnCameraBounds cameraBounds,
@@ -552,7 +566,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// Camera の実表示境界を使い、選んだ方向の画面外近くへ spawn 位置を生成する。
+    /// 実際に画面に映っている範囲をもとに、選んだ方向の「画面のすぐ外側」に出現位置を決める。
     /// </summary>
     public static float3 CalculateBiasedCameraOutsideSpawnPosition(
         float3 playerPosition,
@@ -583,7 +597,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// Player 周囲の XZ ring 内に 1 点を生成する。
+    /// プレイヤーを囲むリング状の範囲（XZ 平面）から、ランダムな位置を 1 つ選ぶ。
     /// </summary>
     public static float3 CalculatePlayerRingSpawnPosition(
         float3 playerPosition,
@@ -599,6 +613,7 @@ public static class MonsterSpawnDirectorUtility
             out var normalizedMaxDistance);
 
         var angle = random.NextFloat(0f, math.PI * 2f);
+        // 距離の 2 乗で乱数を取ってから平方根をとると、リング内に面積あたり均等に分布する（内側に偏らない）。
         var minDistanceSq = normalizedMinDistance * normalizedMinDistance;
         var maxDistanceSq = normalizedMaxDistance * normalizedMaxDistance;
         var radius = math.sqrt(random.NextFloat(minDistanceSq, maxDistanceSq));
@@ -611,7 +626,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// Player 周囲の XZ ring 内に、必要なら player の進行方向へ偏らせて 1 点を生成する。
+    /// プレイヤーを囲むリング状の範囲から、進行方向に寄せてランダムな位置を 1 つ選ぶ（進む先に敵が出るようにするため）。
     /// </summary>
     public static float3 CalculateBiasedPlayerRingSpawnPosition(
         float3 playerPosition,
@@ -644,7 +659,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// Player の進行方向 bias を考慮して、spawn に使う XZ 方向を返す。
+    /// 進行方向への寄せ具合を考慮して、出現させる方向を決める。
     /// </summary>
     public static float2 CalculateBiasedSpawnDirection(
         float2 preferredDirection,
@@ -667,7 +682,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// GroundSensor の下端が地面に触れる root 位置を返す。
+    /// 接地判定用の球の下端がちょうど地面に触れるような、Entity の位置を返す（地面に埋まったり浮いたりしないようにする）。
     /// </summary>
     public static float3 CalculateGroundedSpawnPosition(
         float3 groundPosition,
@@ -685,7 +700,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// ステージ進行度を非負値へ正規化する。
+    /// ステージの進み具合を 0 以上に補正する。
     /// </summary>
     public static float NormalizeStageProgress(float progress)
     {
@@ -693,7 +708,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// timed spawn 間隔を非負値へ正規化する。
+    /// 出現間隔を 0 以上に補正する。
     /// </summary>
     public static float NormalizeSpawnInterval(float seconds)
     {
@@ -701,7 +716,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// timed spawn 数を非負値へ正規化する。
+    /// 出現数を 0 以上に補正する。
     /// </summary>
     public static int NormalizeSpawnCount(int spawnCount)
     {
@@ -709,7 +724,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// 1 回の recycle scan で調べる monster 数を 1 以上へ正規化する。
+    /// 1 フレームで調べるモンスターの数を 1 以上に補正する。
     /// </summary>
     public static int NormalizeRecycleChecksPerFrame(int checkCount)
     {
@@ -717,7 +732,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// 近距離密度の低下判定数を target 以下へ正規化する。
+    /// 「近くのモンスターが少ない」と判定する数を、目標の数以下に補正する。
     /// </summary>
     public static int NormalizeNearbyLowThreshold(int lowThreshold, int targetCount)
     {
@@ -732,7 +747,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// 近距離密度の半径を spawn ring を含む値へ正規化する。
+    /// 「近く」とみなす半径を、出現範囲を含む大きさに補正する（出現した直後に「遠い」と判定されないようにするため）。
     /// </summary>
     public static float NormalizeNearbyMonsterRadius(float nearbyRadius, float maxSpawnDistanceFromPlayer)
     {
@@ -748,7 +763,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// player 進行方向への spawn 偏りを 0..1 に収める。
+    /// 進行方向への寄せ具合を 0〜1 に収める。
     /// </summary>
     public static float NormalizeForwardSpawnBias(float forwardBias)
     {
@@ -756,7 +771,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// recycle 距離を spawn ring の外側に保つ。
+    /// 再配置する距離を、出現範囲より外側に補正する（出現した直後に再配置されないようにするため）。
     /// </summary>
     public static float NormalizeRecycleDistance(float recycleDistance, float maxSpawnDistanceFromPlayer)
     {
@@ -772,7 +787,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// 現在の alive 数と上限から、今回実際に spawn してよい数を返す。
+    /// 現在のモンスターの数と上限から、今回実際に出現させてよい数を返す。
     /// </summary>
     public static int CalculateSpawnCountUnderLimit(
         int requestedSpawnCount,
@@ -794,7 +809,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// 近距離 monster 密度が低い場合、通常 batch より多く補充する数を返す。
+    /// 近くのモンスターが少ない場合は、通常より多めに補充する数を返す。
     /// </summary>
     public static int CalculateSpawnCountForNearbyDensity(
         int spawnCountPerInterval,
@@ -827,7 +842,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// 近距離 density が低い時に recycle で補うべき数を返す。
+    /// 近くのモンスターが少ないときに、再配置で補うべき数を返す。
     /// </summary>
     public static int CalculateNearbyDensityDeficit(
         int nearbyMonsterCount,
@@ -851,7 +866,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// timed spawn を今回実行するかどうかを返す。
+    /// 経過時間が出現間隔に達したかどうかを返す。
     /// </summary>
     public static bool ShouldSpawnByInterval(float elapsedSeconds, float intervalSeconds)
     {
@@ -861,7 +876,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// Monster が player からの recycle 距離を超えているかどうかを返す。
+    /// モンスターがプレイヤーから離れすぎていて、再配置が必要かどうかを返す。
     /// </summary>
     public static bool ShouldRecycleByDistance(
         float3 monsterPosition,
@@ -881,7 +896,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// 現在のステージ進行度で有効な timed monster spawn 設定を選ぶ。
+    /// 現在のステージの進み具合に合った出現設定（間隔と数）を選ぶ。
     /// </summary>
     public static void SelectTimedSpawnSettings(
         DynamicBuffer<MonsterSpawnStageTuningElement> stageTunings,
@@ -915,7 +930,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// timed spawn 用の非ゼロ seed を作る。
+    /// 出現位置を決める乱数の seed を作る（Unity.Mathematics.Random は 0 を受け付けないため、0 以外にする）。
     /// </summary>
     public static uint CreateTimedSpawnSeed(
         int worldSeed,
@@ -937,7 +952,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// 正の weight を持つ monster prefab の合計 weight を返す。
+    /// 候補の重みの合計を返す（0 以下の重みは無視する）。
     /// </summary>
     public static float CalculateTotalMonsterPrefabWeight(
         DynamicBuffer<MonsterSpawnPrefabElement> monsterPrefabs)
@@ -960,7 +975,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// 0 以上 totalWeight 未満の roll から monster prefab を選ぶ。
+    /// 0 以上・重みの合計未満の乱数値から、対応する候補を選ぶ。
     /// </summary>
     public static Entity SelectMonsterPrefab(
         DynamicBuffer<MonsterSpawnPrefabElement> monsterPrefabs,
@@ -1000,7 +1015,7 @@ public static class MonsterSpawnDirectorUtility
     }
 
     /// <summary>
-    /// Monster prefab 候補から weight に従って 1 つ選ぶ。
+    /// 重みに比例した確率で、モンスターの候補を 1 つ選ぶ。
     /// </summary>
     public static Entity SelectMonsterPrefab(
         DynamicBuffer<MonsterSpawnPrefabElement> monsterPrefabs,
@@ -1018,21 +1033,29 @@ public static class MonsterSpawnDirectorUtility
 }
 
 /// <summary>
-/// 一定時間ごとに player 周辺へ通常 monster を配置し、遠すぎる monster を再利用する。
+/// プレイヤーの周囲にモンスターを出現させ続ける System。主に次の 3 つを行う。
+/// 1. 定期出現：一定時間ごとに、画面のすぐ外側へモンスターを出現させる
+/// 2. 遠距離の再配置：プレイヤーから離れすぎたモンスターを、近くに移動させて使い回す
+/// 3. 密度の維持：近くのモンスターが少なくなったら、遠くのモンスターの再配置や追加の出現で補う
 ///
-/// Entity の destroy/instantiate を毎回行うと structural change が重くなるため、通常 monster は
-/// 可能な限り座標と runtime 状態をリセットして再利用する。
+/// Entity の生成・削除（構造変更）は重いため、モンスターはできるだけ位置と状態をリセットして再利用する。
+/// また、全モンスターを 1 フレームで調べると負荷が大きいため、調べる数に上限を設け、続きは次のフレームで調べる。
 /// </summary>
 [UpdateAfter(typeof(MonsterDestroySystem))]
 [UpdateBefore(typeof(MonsterSimpleAiSystem))]
 public partial struct MonsterSpawnDirectorSystem : ISystem
 {
+    // 各処理の経過時間（間隔に達したら実行する）。
     private float spawnElapsedSeconds;
     private float recycleElapsedSeconds;
     private float nearbyDensityElapsedSeconds;
+
+    // 複数フレームに分けて調べるときの「どこまで調べたか」の位置。
     private int recycleScanCursor;
     private int densityRecycleScanCursor;
     private bool recycleScanActive;
+
+    // 乱数 seed を毎回変えるための通し番号。
     private uint spawnSequence;
 
     [BurstCompile]
@@ -1075,6 +1098,7 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
             ref state,
             out var cameraSpawnBounds);
         var isStageCleared = IsAnyStageCleared(ref state);
+        // 新しい Entity の生成は EntityCommandBuffer に積み、最後にまとめて反映する。
         var entityCommandBuffer = new EntityCommandBuffer(Unity.Collections.Allocator.Temp);
         var hasSpawnCommands = false;
 
@@ -1084,10 +1108,12 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
                      DynamicBuffer<MonsterSpawnPrefabElement>,
                      DynamicBuffer<MonsterSpawnStageTuningElement>>())
         {
+            // カメラから計算した出現距離があれば、Inspector の設定値より優先して使う。
             var runtimeConfig = hasCameraSpawnBounds
                 ? ApplyCameraSpawnBounds(config.ValueRO, cameraSpawnBounds)
                 : config.ValueRO;
 
+            // ステージクリア後は出現させない。
             if (isStageCleared)
             {
                 recycleScanActive = false;
@@ -1095,6 +1121,7 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
                 continue;
             }
 
+            // --- 1. 遠くのモンスターを近くに再配置する（前のフレームの続きがあれば続きから）---
             if (recycleScanActive ||
                 ShouldRunRecycleScan(ref state, runtimeConfig.RecycleCheckIntervalSeconds))
             {
@@ -1124,6 +1151,7 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
                 out var spawnIntervalSeconds,
                 out var spawnCountPerInterval);
 
+            // --- 2. 近くのモンスターの数を保つ ---
             var shouldMaintainNearbyDensity =
                 densityRecycleScanCursor > 0 ||
                 ShouldRunNearbyDensityMaintenance(
@@ -1167,6 +1195,7 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
                 continue;
             }
 
+            // --- 3. 定期出現（上限を超えない数だけ出現させる）---
             var allowedSpawnCount = MonsterSpawnDirectorUtility.CalculateSpawnCountForNearbyDensity(
                 spawnCountPerInterval,
                 runtimeConfig.MaxAliveMonsterCount,
@@ -1207,9 +1236,15 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
         entityCommandBuffer.Dispose();
     }
 
+    /// <summary>
+    /// モンスターの数の集計結果。
+    /// </summary>
     private struct MonsterDensityStats
     {
+        /// <summary>生きているモンスターの総数。</summary>
         public int Alive;
+
+        /// <summary>プレイヤーの近くにいるモンスターの数。</summary>
         public int Nearby;
     }
 
@@ -1233,6 +1268,9 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
         return false;
     }
 
+    /// <summary>
+    /// カメラから計算した出現距離を取得する。
+    /// </summary>
     private bool TryGetCameraSpawnBounds(
         ref SystemState state,
         out MonsterSpawnCameraBounds cameraSpawnBounds)
@@ -1247,6 +1285,9 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
         return false;
     }
 
+    /// <summary>
+    /// 設定の出現距離を、カメラから計算した値で置き換える。関連する距離（近くの範囲・再配置の距離）も合わせて補正する。
+    /// </summary>
     private static MonsterSpawnDirectorConfig ApplyCameraSpawnBounds(
         MonsterSpawnDirectorConfig config,
         MonsterSpawnCameraBounds cameraSpawnBounds)
@@ -1294,6 +1335,9 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
         return false;
     }
 
+    /// <summary>
+    /// 出現位置の地面の高さとして、プレイヤーが最後に接地した高さを使う。
+    /// </summary>
     private static float GetSpawnGroundY(
         ComponentLookup<GroundSnap> groundSnapLookup,
         Entity playerEntity,
@@ -1308,6 +1352,9 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
         return playerPosition.y;
     }
 
+    /// <summary>
+    /// 出現位置を寄せる方向を決める。移動中なら移動方向、止まっていれば向いている方向を使う。
+    /// </summary>
     private static float2 GetPreferredSpawnDirection(
         ComponentLookup<Velocity> velocityLookup,
         ComponentLookup<FacingDirection> facingLookup,
@@ -1338,6 +1385,9 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
         return new float2(0f, 1f);
     }
 
+    /// <summary>
+    /// 定期出現の時間になったかを判定する（余った時間は次回に持ち越す）。
+    /// </summary>
     private bool ShouldRunTimedSpawn(ref SystemState state, float intervalSeconds)
     {
         if (intervalSeconds <= 0f)
@@ -1356,6 +1406,9 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
         return true;
     }
 
+    /// <summary>
+    /// 遠くのモンスターを探す時間になったかを判定する。
+    /// </summary>
     private bool ShouldRunRecycleScan(ref SystemState state, float intervalSeconds)
     {
         if (intervalSeconds <= 0f)
@@ -1374,6 +1427,9 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
         return true;
     }
 
+    /// <summary>
+    /// 近くのモンスターの数を確認する時間になったかを判定する。
+    /// </summary>
     private bool ShouldRunNearbyDensityMaintenance(ref SystemState state, float intervalSeconds)
     {
         if (intervalSeconds <= 0f)
@@ -1394,6 +1450,9 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
         return true;
     }
 
+    /// <summary>
+    /// 指定した数のモンスターを、プレイヤーの周囲に出現させる。
+    /// </summary>
     private void SpawnMonstersAroundPlayer(
         ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
@@ -1443,6 +1502,9 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
         }
     }
 
+    /// <summary>
+    /// 近くのモンスターが足りない場合に補う。まず遠くのモンスターを再配置し、それでも足りなければ新しく出現させる。
+    /// </summary>
     private void MaintainNearbyMonsterDensity(
         ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
@@ -1518,6 +1580,9 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
         hasSpawnCommands = true;
     }
 
+    /// <summary>
+    /// 生きているモンスターの総数と、プレイヤーの近くにいる数を数える。
+    /// </summary>
     private MonsterDensityStats CountAliveMonsterDensity(
         ref SystemState state,
         float3 playerPosition,
@@ -1550,6 +1615,11 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
         return stats;
     }
 
+    /// <summary>
+    /// 近くのモンスターを増やすため、遠くにいるモンスターをプレイヤーの近くに再配置する。
+    /// 調べる数には上限があり、上限に達したら続きは次のフレームで調べる。
+    /// </summary>
+    /// <returns>再配置した数。</returns>
     private int RecycleDistantMonstersForNearbyDensity(
         ref SystemState state,
         MonsterSpawnDirectorConfig config,
@@ -1597,6 +1667,7 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
                      .WithNone<MonsterDestroyVfxState, FreezeTag>()
                      .WithEntityAccess())
         {
+            // 前のフレームで調べ終わったところまでは飛ばす。
             if (seenMonsterCount < densityRecycleScanCursor)
             {
                 seenMonsterCount++;
@@ -1661,6 +1732,9 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
         return recycledMonsterCount;
     }
 
+    /// <summary>
+    /// 出現位置を決める。カメラの情報があれば画面のすぐ外側に、なければ設定のリング状の範囲に出現させる。
+    /// </summary>
     private static float3 CalculateRuntimeSpawnPosition(
         MonsterSpawnDirectorConfig config,
         bool hasCameraSpawnBounds,
@@ -1692,6 +1766,11 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
             ref random);
     }
 
+    /// <summary>
+    /// プレイヤーから離れすぎたモンスターを、近くに再配置する。
+    /// 調べる数には上限があり、上限に達したら続きは次のフレームで調べる。
+    /// </summary>
+    /// <returns>全モンスターを調べ終わったら true、続きがあれば false。</returns>
     private bool RecycleFarMonsters(
         ref SystemState state,
         MonsterSpawnDirectorConfig config,
@@ -1731,6 +1810,7 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
                      .WithNone<MonsterDestroyVfxState, FreezeTag>()
                      .WithEntityAccess())
         {
+            // 前のフレームで調べ終わったところまでは飛ばす。
             if (seenMonsterCount < recycleScanCursor)
             {
                 seenMonsterCount++;
@@ -1793,6 +1873,9 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
         return true;
     }
 
+    /// <summary>
+    /// モンスターを 1 体生成し、地面に立つ位置に置く。
+    /// </summary>
     private static void SpawnMonster(
         ref EntityCommandBuffer entityCommandBuffer,
         ComponentLookup<LocalTransform> transformLookup,
@@ -1817,6 +1900,10 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
             transform);
     }
 
+    /// <summary>
+    /// 再配置したモンスターの状態（HP・速度・デバフ・色など）を初期値に戻す。
+    /// Component を付け外しせず値を書き換えるだけなので、構造変更が起きない。
+    /// </summary>
     private static void ResetRecycledMonsterRuntimeState(
         Entity monsterEntity,
         float groundY,
@@ -1887,6 +1974,9 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
         }
     }
 
+    /// <summary>
+    /// モンスターとその子の Entity の色を、元の色に戻す。
+    /// </summary>
     private static void ResetMonsterMaterialColorIfPresent(
         BufferLookup<LinkedEntityGroup> linkedEntityLookup,
         ref ComponentLookup<URPMaterialPropertyBaseColor> baseColorLookup,
@@ -1926,6 +2016,9 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
         };
     }
 
+    /// <summary>
+    /// 新しく生成するモンスターの Transform を、Prefab の回転と大きさを保ったまま、地面に立つ位置で作る。
+    /// </summary>
     private static LocalTransform CreateMonsterPlacementTransform(
         ComponentLookup<LocalTransform> transformLookup,
         ComponentLookup<GroundSensor> groundSensorLookup,
@@ -1956,6 +2049,9 @@ public partial struct MonsterSpawnDirectorSystem : ISystem
             prefabTransform.Scale);
     }
 
+    /// <summary>
+    /// 再配置するモンスターの Transform を、今の回転と大きさを保ったまま、地面に立つ位置で作る。
+    /// </summary>
     private static LocalTransform CalculateMonsterPlacementTransform(
         ComponentLookup<GroundSensor> groundSensorLookup,
         Entity monsterEntity,

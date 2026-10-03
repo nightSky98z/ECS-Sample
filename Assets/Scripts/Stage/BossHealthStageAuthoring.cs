@@ -3,7 +3,7 @@ using Unity.Mathematics;
 using UnityEngine;
 
 /// <summary>
-/// SubScene に置く Boss ステージ設定。
+/// 「ボスを倒すとクリア」のステージの設定。サブシーンに置く。
 /// </summary>
 public sealed class BossHealthStageAuthoring : MonoBehaviour
 {
@@ -21,6 +21,9 @@ public sealed class BossHealthStageAuthoring : MonoBehaviour
     [Tooltip("初期残り HP。")]
     private int InitialCurrentHp = 1000;
 
+    /// <summary>
+    /// Inspector で入力された値を、有効な範囲に収める。
+    /// </summary>
     private void OnValidate()
     {
         MaxHp = math.max(1, MaxHp);
@@ -29,6 +32,9 @@ public sealed class BossHealthStageAuthoring : MonoBehaviour
 
     private sealed class Baker : Baker<BossHealthStageAuthoring>
     {
+        /// <summary>
+        /// ボスの HP の状態・進み具合・クリア状態の Component を追加する。
+        /// </summary>
         public override void Bake(BossHealthStageAuthoring authoring)
         {
             var entity = GetEntity(TransformUsageFlags.None);

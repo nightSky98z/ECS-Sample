@@ -4,16 +4,19 @@ using Unity.Mathematics;
 using Unity.Transforms;
 
 /// <summary>
-/// HP が 0 以下になった Monster を death VFX 状態へ移行し、通常 monster は再利用、特殊 monster は削除する。
+/// HP が 0 になったモンスターの死亡処理。
+/// 1. 死亡演出を開始し、移動・当たり判定の対象から外す。あわせて経験値と討伐数を加算する
+/// 2. 演出が終わったら、通常のモンスターはプレイヤーの周囲に再配置して使い回し、特殊な敵は削除する
 ///
-/// 死亡開始時は structural change を EntityCommandBuffer に積み、Velocity / CollisionRadius を外すか無効化して
-/// AI、移動、衝突処理から切り離す。通常 monster は Entity を破棄せず、VFX 完了後に再配置して再利用する。
+/// Entity の構造変更（Component の付け外し）は EntityCommandBuffer にまとめ、ループの後で一括して反映する。
+/// 通常のモンスターは Destroy / Instantiate を繰り返さずに再利用することで、大量の敵がいても負荷を抑えている。
 /// </summary>
 [UpdateInGroup(typeof(SimulationSystemGroup))]
 [UpdateAfter(typeof(SkillLogicSystem))]
 [UpdateBefore(typeof(MonsterSimpleAiSystem))]
 public partial struct MonsterDestroySystem : ISystem
 {
+    // 再配置位置の乱数 seed を毎回変えるための通し番号。
     private uint deathRecycleSequence;
 
     public void OnCreate(ref SystemState state)
@@ -24,6 +27,7 @@ public partial struct MonsterDestroySystem : ISystem
 
     public void OnUpdate(ref SystemState state)
     {
+        // --- 1. 新しく HP が 0 になったモンスターの死亡演出を開始する ---
         var startCommandBuffer = new EntityCommandBuffer(Allocator.Temp);
         var killedMonsterCount = 0;
         var gainedExperience = 0L;
@@ -57,6 +61,7 @@ public partial struct MonsterDestroySystem : ISystem
                 gainedExperience += ExperienceMath.NormalizeReward(experienceRewardLookup[entity].Value);
             }
 
+            // 移動を止める。再利用するモンスターは、後でまた使うので Component を外さず速度を 0 にするだけにする。
             if (state.EntityManager.HasComponent<Velocity>(entity))
             {
                 if (state.EntityManager.HasComponent<MonsterRecycleTag>(entity))
@@ -72,6 +77,7 @@ public partial struct MonsterDestroySystem : ISystem
                 }
             }
 
+            // 当たり判定の半径を 0 にして、プレイヤーを押し戻さないようにする。
             if (state.EntityManager.HasComponent<CollisionRadius>(entity))
             {
                 startCommandBuffer.SetComponent(entity, new CollisionRadius
@@ -96,6 +102,7 @@ public partial struct MonsterDestroySystem : ISystem
         startCommandBuffer.Playback(state.EntityManager);
         startCommandBuffer.Dispose();
 
+        // --- 2. 死亡演出が終わったモンスターを、再利用または削除する ---
         var updateCommandBuffer = new EntityCommandBuffer(Allocator.Temp);
         var hasRecycleContext = TryGetDeathRecycleContext(
             ref state,
@@ -150,6 +157,9 @@ public partial struct MonsterDestroySystem : ISystem
         updateCommandBuffer.Dispose();
     }
 
+    /// <summary>
+    /// このフレームで倒したモンスターの経験値の合計を、プレイヤーに加算する（レベルアップは LevelUpSystem が行う）。
+    /// </summary>
     private void AddExperienceToPlayers(ref SystemState state, int gainedExperience)
     {
         if (gainedExperience <= 0)
@@ -179,7 +189,7 @@ public partial struct MonsterDestroySystem : ISystem
     }
 
     /// <summary>
-    /// 討伐数ステージが存在する場合だけ、死亡確定した通常 monster 数を進行度へ加算する。
+    /// 討伐数がクリア条件のステージであれば、倒したモンスターの数を進行度に加算する。
     /// </summary>
     private void AddKillCount(ref SystemState state, int killedMonsterCount)
     {
@@ -192,9 +202,9 @@ public partial struct MonsterDestroySystem : ISystem
     }
 
     /// <summary>
-    /// 死亡 VFX 後の再配置に必要な spawn 設定、player 位置、地面高さを取得する。
+    /// 再配置に必要な情報（出現の設定・プレイヤーの位置・地面の高さ）を取得する。
     /// </summary>
-    /// <returns>通常 monster を recycle できるだけの情報が揃っていれば true。</returns>
+    /// <returns>再配置に必要な情報がそろっていれば true。</returns>
     private bool TryGetDeathRecycleContext(
         ref SystemState state,
         out MonsterSpawnDirectorConfig config,
@@ -238,7 +248,7 @@ public partial struct MonsterDestroySystem : ISystem
     }
 
     /// <summary>
-    /// 死亡 VFX が終わった通常 monster を、player 周辺の画面外 ring に戻す。
+    /// 死亡演出が終わったモンスターを、プレイヤーを囲むリング状の範囲（画面外）に再配置する。
     /// </summary>
     private void RecycleMonsterAfterDeathVfx(
         ref SystemState state,
@@ -273,7 +283,7 @@ public partial struct MonsterDestroySystem : ISystem
     }
 
     /// <summary>
-    /// GroundSensor を持つ prefab の root が、sensor 下端で地面に接する位置を計算する。
+    /// 再配置先の Transform を計算する。接地判定用の球があれば、その下端がちょうど地面に触れる高さに合わせる。
     /// </summary>
     private static LocalTransform CalculateRecycleTransform(
         ref SystemState state,
@@ -297,7 +307,7 @@ public partial struct MonsterDestroySystem : ISystem
     }
 
     /// <summary>
-    /// recycle した monster を次の生存サイクルへ戻すため、runtime 状態を初期値へ戻す。
+    /// 再利用するモンスターの状態（HP・速度・当たり判定・デバフ・色など）を初期値に戻す。
     /// </summary>
     private void ResetRecycledMonsterRuntimeState(
         ref SystemState state,
@@ -380,7 +390,7 @@ public partial struct MonsterDestroySystem : ISystem
 
         if (state.EntityManager.HasComponent<MonsterHitVfxConfig>(entity))
         {
-            // 被弾色や死亡色が残らないように、linked render entity の base color も戻す。
+            // 被弾時や死亡時の色が残らないように、見た目の Entity の色も元に戻す。
             VFXMaterialUtility.AddOrSetBaseColorForLinkedRenderEntities(
                 ref state,
                 ref entityCommandBuffer,
@@ -392,7 +402,7 @@ public partial struct MonsterDestroySystem : ISystem
     }
 
     /// <summary>
-    /// root と linked render / collider entity をまとめて破棄する。
+    /// ルートの Entity と、それに紐付いた子の Entity（見た目・Collider など）をまとめて削除する。
     /// </summary>
     private void DestroyLinkedEntityGroup(
         ref SystemState state,
@@ -415,14 +425,13 @@ public partial struct MonsterDestroySystem : ISystem
 }
 
 /// <summary>
-/// Monster death VFX の時間、scale、material color 計算。
-///
-/// VFX の runtime 状態を持たない純粋計算にして、System から独立して検証できるようにする。
+/// モンスターの死亡演出の計算処理（時間・大きさ・色）。
+/// 状態を持たない計算だけにすることで、System とは別に単体テストできるようにしている。
 /// </summary>
 public static class MonsterDestroyVfxMath
 {
     /// <summary>
-    /// VFX duration を 0 より大きい値へ正規化する。
+    /// 演出の長さが 0 以下にならないように補正する（0 で割るのを防ぐ）。
     /// </summary>
     public static float NormalizeDuration(float duration)
     {
@@ -430,7 +439,7 @@ public static class MonsterDestroyVfxMath
     }
 
     /// <summary>
-    /// elapsed / duration から 0..1 の再生率を返す。
+    /// 経過時間から、演出の進み具合（0〜1）を返す。
     /// </summary>
     public static float CalculateProgress(float elapsedTime, float duration)
     {
@@ -438,7 +447,7 @@ public static class MonsterDestroyVfxMath
     }
 
     /// <summary>
-    /// 死亡 VFX 中の scale を線形補間で計算する。
+    /// 進み具合に応じて、元の大きさから終了時の大きさへ線形補間した大きさを返す。
     /// </summary>
     public static float CalculateScale(float originalScale, float endScale, float progress)
     {
@@ -450,7 +459,7 @@ public static class MonsterDestroyVfxMath
     }
 
     /// <summary>
-    /// 死亡 VFX 中の base color を線形補間で計算する。
+    /// 進み具合に応じて、開始時の色から終了時の色へ線形補間した色を返す。
     /// </summary>
     public static float4 CalculateBaseColor(float4 startColor, float4 endColor, float progress)
     {

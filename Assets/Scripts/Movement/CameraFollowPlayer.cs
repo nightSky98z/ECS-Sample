@@ -4,7 +4,8 @@ using Unity.Transforms;
 using UnityEngine;
 
 /// <summary>
-/// PlayerTag を持つ Entity の位置に Main Camera を追従させる。
+/// カメラをプレイヤー（ECS の Entity）の位置に滑らかに追従させる。
+/// 正投影にすることで、画面の解像度や縦横比が変わっても見えるワールドの範囲が大きく変わらないようにしている。
 /// </summary>
 [RequireComponent(typeof(Camera))]
 public sealed class CameraFollowPlayer : MonoBehaviour
@@ -75,6 +76,7 @@ public sealed class CameraFollowPlayer : MonoBehaviour
         var playerPosition = (Vector3)playerTransform.Position;
         var targetPosition = playerPosition + Offset;
 
+        // 指数関数で補間係数を決め、フレームレートが変わっても追従の速さが変わらないようにする。
         transform.position = Vector3.Lerp(
             transform.position,
             targetPosition,
@@ -82,6 +84,9 @@ public sealed class CameraFollowPlayer : MonoBehaviour
         );
     }
 
+    /// <summary>
+    /// 正投影の表示サイズを、画面の縦横比に合わせて調整する。
+    /// </summary>
     private void ApplyProjectionPolicy()
     {
         if (!UseOrthographicProjection || CachedCamera == null)
@@ -98,16 +103,17 @@ public sealed class CameraFollowPlayer : MonoBehaviour
 }
 
 /// <summary>
-/// CameraFollowPlayer の Unity object に依存しない表示範囲計算。
+/// CameraFollowPlayer の表示範囲の計算。Unity のオブジェクトに依存しないので、単体テストできる。
 /// </summary>
 public static class CameraFollowPlayerMath
 {
     /// <summary>
-    /// 基準 orthographic size と最小表示幅から、現在 aspect で使う size を求める。
+    /// 基準の表示サイズと最低限見せたい横幅から、現在の縦横比で使う表示サイズを求める。
+    /// 縦長の画面でも横方向が狭くなりすぎないよう、必要に応じてカメラを引く。
     /// </summary>
-    /// <param name="baseOrthographicSize">通常時の縦方向表示半径。</param>
-    /// <param name="minimumVisibleWorldWidth">横方向に最低限見せたいワールド幅。0 以下なら無効。</param>
-    /// <param name="aspect">Camera の width / height。</param>
+    /// <param name="baseOrthographicSize">通常時の縦方向の表示半径。</param>
+    /// <param name="minimumVisibleWorldWidth">横方向に最低限見せたいワールドの幅。0 以下なら無効。</param>
+    /// <param name="aspect">画面の縦横比（幅 / 高さ）。</param>
     /// <returns>Camera.orthographicSize に設定する値。</returns>
     public static float CalculateAspectSafeOrthographicSize(
         float baseOrthographicSize,

@@ -4,19 +4,20 @@ using Unity.Mathematics;
 using Unity.Transforms;
 
 /// <summary>
-/// 生成したい Prefab Entity への一回分の要求。
+/// Entity を 1 つ生成してほしいという要求。EntitySpawnSystem が処理する。
 /// </summary>
 public struct SpawnRequest : IBufferElementData
 {
     /// <summary> 生成する Prefab Entity。 </summary>
     public Entity Prefab;
 
-    /// <summary> 生成時に設定する local transform。 </summary>
+    /// <summary> 生成した Entity に設定する位置・回転・大きさ。 </summary>
     public LocalTransform Transform;
 }
 
 /// <summary>
-/// Scene 上の設定から、初期配置用の SpawnRequest を Bake する Authoring。
+/// シーンに置いた設定から、ゲーム開始時に生成する Entity の要求（SpawnRequest）を作る Authoring。
+/// 位置をランダムにする場合は、seed から位置が決まるため、毎回同じ配置になる。
 /// </summary>
 public partial class EntitySpawnerAuthoring : MonoBehaviour
 {
@@ -42,7 +43,7 @@ public partial class EntitySpawnerAuthoring : MonoBehaviour
     private Vector2 SpawnAreaSize = new Vector2(20f, 20f);
 
     /// <summary>
-    /// Authoring GameObject から、EntitySpawnSystem が消費する SpawnRequest buffer を作る。
+    /// 設定から生成要求（SpawnRequest）の一覧を作り、Entity に Buffer として追加する。
     /// </summary>
     class Baking : Unity.Entities.Baker<EntitySpawnerAuthoring>
     {
@@ -62,7 +63,8 @@ public partial class EntitySpawnerAuthoring : MonoBehaviour
             var spawnRequests = AddBuffer<SpawnRequest>(entity);
             var rotation = authoring.transform.rotation;
             var baseRotation = new quaternion(rotation.x, rotation.y, rotation.z, rotation.w);
-            // LocalTransform は uniform scale のみ保持する。非 uniform scale が必要なら PostTransformMatrix を使う。
+            // LocalTransform は全軸共通の大きさしか持てないため、X 軸の大きさを使う。
+            // 軸ごとに異なる大きさが必要な場合は PostTransformMatrix を使う。
             var uniformScale = authoring.transform.lossyScale.x;
             var center = (float3)authoring.transform.position;
             var areaSize = new float2(authoring.SpawnAreaSize.x, authoring.SpawnAreaSize.y);
@@ -92,16 +94,16 @@ public partial class EntitySpawnerAuthoring : MonoBehaviour
 }
 
 /// <summary>
-/// SpawnRequest 作成と Editor preview が共有する座標計算。
+/// 生成位置の計算処理。Bake とエディタのプレビューで同じ計算を使い、プレビューと実際の配置が一致するようにしている。
 /// </summary>
 public static class SpawnTransformUtility
 {
     /// <summary>
-    /// RandomizePosition の有無から、実際に Bake / preview する生成数を返す。
+    /// 実際に生成する数を返す。位置をランダムにしない場合、同じ場所に重なってしまうため 1 つだけにする。
     /// </summary>
-    /// <param name="spawnCount">Authoring が保持する要求数。0 以下は生成なし。</param>
-    /// <param name="randomizePosition">true の場合だけ複数生成を許可する。</param>
-    /// <returns>実際に生成する SpawnRequest 数。</returns>
+    /// <param name="spawnCount">設定された生成数。0 以下なら生成しない。</param>
+    /// <param name="randomizePosition">true の場合だけ複数生成できる。</param>
+    /// <returns>実際に生成する数。</returns>
     public static int GetEffectiveSpawnCount(int spawnCount, bool randomizePosition)
     {
         if (spawnCount <= 0)
@@ -118,7 +120,7 @@ public static class SpawnTransformUtility
     }
 
     /// <summary>
-    /// Unity.Mathematics.Random が受け付ける非ゼロ seed に正規化する。
+    /// seed を 0 以外の値にする（Unity.Mathematics.Random は 0 を受け付けないため）。
     /// </summary>
     public static uint NormalizeSeed(int seed)
     {
@@ -131,7 +133,7 @@ public static class SpawnTransformUtility
     }
 
     /// <summary>
-    /// Spawner の中心位置と random 設定から、1体分の spawn 位置を返す。
+    /// 1 体分の生成位置を返す。ランダムにする場合は、中心から範囲内のランダムな位置（XZ 平面）を返す。
     /// </summary>
     public static float3 CreateSpawnPosition(
         float3 center,

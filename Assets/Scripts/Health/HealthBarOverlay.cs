@@ -7,7 +7,10 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// ECS の HP と座標を読み、GameObject UI として頭上 HP bar を表示する。
+/// ECS 側の HP と座標を読み取り、uGUI で頭上に HP バーを表示する。
+/// ・ECS（データ）と UI（GameObject）を分離し、UI 側から ECS を読むだけの一方向の依存にしている
+/// ・HP バーはオブジェクトプールで使い回し、敵が大量にいても Instantiate / Destroy が頻発しないようにしている
+/// ・画面外・遠距離・死亡した Entity のバーはプールに戻す
 /// </summary>
 [DefaultExecutionOrder(200)]
 public sealed class HealthBarOverlay : MonoBehaviour
@@ -58,7 +61,7 @@ public sealed class HealthBarOverlay : MonoBehaviour
     private bool searchedResourcePrefab;
 
     /// <summary>
-    /// Scene に手動配置しなくても HP bar overlay を 1 つだけ作る。
+    /// シーンに手動で置かなくても、HP バーの表示役を自動で 1 つだけ作る。
     /// </summary>
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void CreateOverlay()
@@ -125,6 +128,9 @@ public sealed class HealthBarOverlay : MonoBehaviour
         ReleaseBarsNotUpdatedThisFrame();
     }
 
+    /// <summary>
+    /// HP バーを表示する Entity の Query を作る。World が作り直された場合（シーン再読み込みなど）は作り直す。
+    /// </summary>
     private bool TryCreateQueries()
     {
         var world = World.DefaultGameObjectInjectionWorld;
@@ -154,6 +160,9 @@ public sealed class HealthBarOverlay : MonoBehaviour
         return true;
     }
 
+    /// <summary>
+    /// 対象の Entity ごとに、HP バーの位置と残り HP を更新する。表示しない条件に当てはまるものはプールに戻す。
+    /// </summary>
     private void UpdateHealthBars(EntityQuery query, Camera targetCamera)
     {
         if (query.IsEmpty)
@@ -161,6 +170,7 @@ public sealed class HealthBarOverlay : MonoBehaviour
             return;
         }
 
+        // 必要なデータを配列でまとめて取得し、Entity ごとに EntityManager へアクセスしないようにする。
         using var entities = query.ToEntityArray(Allocator.Temp);
         using var healthValues = query.ToComponentDataArray<HealthComponent>(Allocator.Temp);
         using var anchors = query.ToComponentDataArray<HealthBarAnchor>(Allocator.Temp);
@@ -212,6 +222,9 @@ public sealed class HealthBarOverlay : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// HP バーを表示するワールド座標と、バーの大きさを計算する。
+    /// </summary>
     private Vector3 CalculateAnchorPosition(
         LocalToWorld localToWorld,
         HealthBarAnchor anchor,
@@ -235,6 +248,9 @@ public sealed class HealthBarOverlay : MonoBehaviour
         return targetCamera != null;
     }
 
+    /// <summary>
+    /// 表示先の Canvas がなければ自動で作る。
+    /// </summary>
     private bool EnsureCanvas()
     {
         if (TargetCanvas != null)
@@ -255,6 +271,9 @@ public sealed class HealthBarOverlay : MonoBehaviour
         return true;
     }
 
+    /// <summary>
+    /// 起動時に HP バーをまとめて生成しておき、ゲーム中に初めて生成するときの負荷を減らす。
+    /// </summary>
     private void PrewarmPool()
     {
         if (TargetCanvas == null || InitialPoolCapacity <= 0)
@@ -271,6 +290,9 @@ public sealed class HealthBarOverlay : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Entity に割り当て済みの HP バーを返す。なければプールから取り出して割り当てる。
+    /// </summary>
     private HealthBarView GetOrCreateBar(Entity entity)
     {
         if (activeBars.TryGetValue(entity, out var activeView))
@@ -291,6 +313,9 @@ public sealed class HealthBarOverlay : MonoBehaviour
         return view;
     }
 
+    /// <summary>
+    /// プールから HP バーを取り出す。プールが空なら新しく作る。
+    /// </summary>
     private HealthBarView GetPooledOrCreateBarView()
     {
         while (barPool.Count > 0)
@@ -306,6 +331,9 @@ public sealed class HealthBarOverlay : MonoBehaviour
         return CreateBarView();
     }
 
+    /// <summary>
+    /// HP バーを 1 つ生成する。Prefab が使えない（RectTransform や前面の Image がない）場合は、コードで既定のバーを作る。
+    /// </summary>
     private HealthBarView CreateBarView()
     {
         var prefab = GetHealthBarPrefab();
@@ -340,6 +368,9 @@ public sealed class HealthBarOverlay : MonoBehaviour
         return new HealthBarView(rectTransform, frontImage);
     }
 
+    /// <summary>
+    /// HP バーの Prefab を返す。Inspector で未設定なら Resources から一度だけ探す。
+    /// </summary>
     private GameObject GetHealthBarPrefab()
     {
         if (HealthBarPrefab != null)
@@ -358,6 +389,9 @@ public sealed class HealthBarOverlay : MonoBehaviour
         return HealthBarPrefab;
     }
 
+    /// <summary>
+    /// スクリーン座標を Canvas 内のローカル座標に変換する。
+    /// </summary>
     private bool TryCalculateCanvasPosition(
         Vector3 screenPoint,
         Camera targetCamera,
@@ -394,6 +428,9 @@ public sealed class HealthBarOverlay : MonoBehaviour
         return (anchorPosition - cameraPosition).sqrMagnitude <= maxDistanceSquared;
     }
 
+    /// <summary>
+    /// このフレームで更新されなかった HP バー（Entity が消えたものなど）をプールに戻す。
+    /// </summary>
     private void ReleaseBarsNotUpdatedThisFrame()
     {
         releaseEntities.Clear();
@@ -412,6 +449,9 @@ public sealed class HealthBarOverlay : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Entity の HP バーを非表示にしてプールに戻す。
+    /// </summary>
     private void ReleaseBar(Entity entity)
     {
         if (!activeBars.TryGetValue(entity, out var view))
@@ -455,6 +495,9 @@ public sealed class HealthBarOverlay : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Prefab がないときに使う、背景と前面の 2 枚の Image でできた HP バーを作る。
+    /// </summary>
     private static GameObject CreateDefaultHealthBar(Transform parent)
     {
         var root = new GameObject("HP_Bar", typeof(RectTransform));
@@ -497,6 +540,9 @@ public sealed class HealthBarOverlay : MonoBehaviour
         return gameObject;
     }
 
+    /// <summary>
+    /// HP の量を表す前面の Image を探す。名前で見つからなければ、Filled タイプの Image を探す。
+    /// </summary>
     private static Image FindFrontImage(GameObject root)
     {
         var frontTransform = root.transform.Find($"background-image/{FrontImageName}") ??
@@ -520,6 +566,9 @@ public sealed class HealthBarOverlay : MonoBehaviour
         return null;
     }
 
+    /// <summary>
+    /// 前面の Image を、左から右へ伸び縮みする Filled 表示に設定する。
+    /// </summary>
     private static void ConfigureFrontImage(Image image)
     {
         image.type = Image.Type.Filled;
@@ -539,6 +588,9 @@ public sealed class HealthBarOverlay : MonoBehaviour
         return true;
     }
 
+    /// <summary>
+    /// HP バーの GameObject が破棄されていないかを確認する（シーン切り替えなどで破棄されることがある）。
+    /// </summary>
     private static bool IsBarViewAlive(HealthBarView view)
     {
         return view != null &&
@@ -546,6 +598,9 @@ public sealed class HealthBarOverlay : MonoBehaviour
                view.FrontImage != null;
     }
 
+    /// <summary>
+    /// 生成した HP バー 1 つ分の参照（毎回 GetComponent しないように保持しておく）。
+    /// </summary>
     private sealed class HealthBarView
     {
         public readonly RectTransform RectTransform;
@@ -560,15 +615,15 @@ public sealed class HealthBarOverlay : MonoBehaviour
 }
 
 /// <summary>
-/// HealthBarOverlay の Unity object に依存しない計算。
+/// HealthBarOverlay の計算部分。Unity のオブジェクトに依存しないので、単体テストできる。
 /// </summary>
 public static class HealthBarOverlayMath
 {
     /// <summary>
-    /// HP の比率を UI Image.fillAmount 用に 0..1 へ正規化する。
+    /// 残り HP の割合（0〜1）を、Image.fillAmount に設定する値として返す。
     /// </summary>
-    /// <param name="health">表示対象の HP。借用のみで変更しない。</param>
-    /// <returns>MaxHp が正の場合は HP 比率。それ以外は 0。</returns>
+    /// <param name="health">表示する HP。</param>
+    /// <returns>最大 HP が正の場合は HP の割合、それ以外は 0。</returns>
     public static float CalculateFillAmount(HealthComponent health)
     {
         if (health.MaxHp <= 0)
@@ -580,11 +635,11 @@ public static class HealthBarOverlayMath
     }
 
     /// <summary>
-    /// Camera.WorldToScreenPoint の結果が画面内かを判定する。
+    /// スクリーン座標が画面内に入っているかを判定する。
     /// </summary>
     /// <param name="screenPoint">Camera.WorldToScreenPoint の戻り値。</param>
-    /// <param name="screenSize">現在の screen pixel size。</param>
-    /// <returns>camera 前方かつ screen 矩形内なら true。</returns>
+    /// <param name="screenSize">画面の大きさ（ピクセル）。</param>
+    /// <returns>カメラの前方にあり、かつ画面の範囲内なら true。</returns>
     public static bool IsScreenPointVisible(Vector3 screenPoint, Vector2 screenSize)
     {
         return screenPoint.z > 0f &&

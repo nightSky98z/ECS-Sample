@@ -3,8 +3,9 @@ using Unity.Mathematics;
 using UnityEngine;
 
 /// <summary>
-/// Attack skill の SFX / VFX をメインスレッドで再生する。
-/// UnityEngine.Object と AudioSource を使うため SystemBase に置き、Burst/job 化しない。
+/// 攻撃スキルの SFX と VFX を再生する。
+/// AudioSource や GameObject（Managed オブジェクト）を扱うため、Burst を使わない SystemBase で実装し、
+/// ダメージ計算などの Burst 対応の System とは分けている。
 /// </summary>
 [UpdateInGroup(typeof(SimulationSystemGroup))]
 [UpdateAfter(typeof(SkillLogicSystem))]
@@ -43,6 +44,9 @@ public partial class SkillPresentationSystem : SystemBase
         }
     }
 
+    /// <summary>
+    /// SFX の再生タイミングに達していれば、最初の攻撃範囲の位置で再生する（1 回の発動につき 1 回）。
+    /// </summary>
     private static void TryPlaySfx(
         RefRW<AttackSkillState> skillState,
         AttackSkillTimingConfig timing,
@@ -58,6 +62,7 @@ public partial class SkillPresentationSystem : SystemBase
             return;
         }
 
+        // 再生できない場合も「再生済み」にして、スキルがクールタイムに移れなくなるのを防ぐ。
         if (sfxClip == null)
         {
             skillState.ValueRW.SfxPlayed = 1;
@@ -77,6 +82,9 @@ public partial class SkillPresentationSystem : SystemBase
         skillState.ValueRW.SfxPlayed = 1;
     }
 
+    /// <summary>
+    /// VFX の生成タイミングに達していれば、攻撃範囲ごとに VFX を生成する（一定時間後に自動で削除される）。
+    /// </summary>
     private static void TrySpawnVfx(
         RefRW<AttackSkillState> skillState,
         AttackSkillTimingConfig timing,
@@ -102,7 +110,7 @@ public partial class SkillPresentationSystem : SystemBase
 
         for (var targetIndex = 0; targetIndex < castTarget.Positions.Length; targetIndex++)
         {
-            // ダメージ範囲はデータで判定し、VFX は見た目だけを範囲に合わせる。
+            // ダメージ判定はデータ（SkillCastTarget）で行い、VFX は見た目の大きさを攻撃範囲に合わせるだけ。
             var vfxScale = SkillMath.CalculateVfxScale(
                 SkillCastTargetUtility.GetAttackRange(castTarget, targetIndex),
                 timing);

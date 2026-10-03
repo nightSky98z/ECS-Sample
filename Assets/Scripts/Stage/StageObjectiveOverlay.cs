@@ -4,7 +4,9 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// StageProgress Entity の達成条件を画面上中央に表示する runtime UI。
+/// ステージのクリア条件と進み具合（残り時間・残り討伐数・ボスの HP）を画面の上中央に表示する UI。
+/// ECS 側のステージの状態を読み取って表示するだけで、ECS 側の値は変更しない。
+/// UI はコードで生成するため、Prefab やシーンの設定は不要。
 /// </summary>
 [DefaultExecutionOrder(210)]
 public sealed class StageObjectiveOverlay : MonoBehaviour
@@ -39,7 +41,7 @@ public sealed class StageObjectiveOverlay : MonoBehaviour
     private bool ownsCanvas;
 
     /// <summary>
-    /// Scene に手動配置しなくても objective overlay を 1 つだけ作る。
+    /// シーンに手動で置かなくても、表示役を自動で 1 つだけ作る。
     /// </summary>
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void CreateOverlay()
@@ -71,6 +73,9 @@ public sealed class StageObjectiveOverlay : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// ステージの種類に応じて表示を切り替える（ボス → 生き残り → 討伐 の順に確認し、最初に見つかったものを表示する）。
+    /// </summary>
     private void LateUpdate()
     {
         if (!EnsureCanvas() || !EnsureUi() || !TryCreateQueries())
@@ -97,6 +102,9 @@ public sealed class StageObjectiveOverlay : MonoBehaviour
         SetVisible(false);
     }
 
+    /// <summary>
+    /// ステージの状態を読むための Query を作る。World が作り直されていたら Query も作り直す。
+    /// </summary>
     private bool TryCreateQueries()
     {
         var world = World.DefaultGameObjectInjectionWorld;
@@ -151,6 +159,9 @@ public sealed class StageObjectiveOverlay : MonoBehaviour
         entityManager = default;
     }
 
+    /// <summary>
+    /// 生き残りステージなら、残り時間を表示する。
+    /// </summary>
     private bool TryShowTimedStage()
     {
         if (timedStageQuery.IsEmpty)
@@ -173,6 +184,9 @@ public sealed class StageObjectiveOverlay : MonoBehaviour
         return true;
     }
 
+    /// <summary>
+    /// 討伐ステージなら、残りの討伐数を表示する。
+    /// </summary>
     private bool TryShowKillCountStage()
     {
         if (killCountStageQuery.IsEmpty)
@@ -195,6 +209,9 @@ public sealed class StageObjectiveOverlay : MonoBehaviour
         return true;
     }
 
+    /// <summary>
+    /// ボスステージなら、ボスの HP バーを表示する。
+    /// </summary>
     private bool TryShowBossStage()
     {
         if (bossStageQuery.IsEmpty)
@@ -216,6 +233,9 @@ public sealed class StageObjectiveOverlay : MonoBehaviour
         return true;
     }
 
+    /// <summary>
+    /// 表示先の Canvas がなければ自動で作る。
+    /// </summary>
     private bool EnsureCanvas()
     {
         if (TargetCanvas != null)
@@ -238,6 +258,9 @@ public sealed class StageObjectiveOverlay : MonoBehaviour
         return true;
     }
 
+    /// <summary>
+    /// 表示に使う UI（テキストとボスの HP バー）を生成する。シーン切り替えなどで破棄されていたら作り直す。
+    /// </summary>
     private bool EnsureUi()
     {
         if (IsUiReady())
@@ -383,6 +406,9 @@ public sealed class StageObjectiveOverlay : MonoBehaviour
         return text;
     }
 
+    /// <summary>
+    /// 画面サイズに合わせて UI を拡大縮小し、どの解像度でも画面に対して同じ比率で表示されるようにする。
+    /// </summary>
     private static void ConfigureCanvasScaler(CanvasScaler canvasScaler)
     {
         canvasScaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
@@ -399,6 +425,9 @@ public sealed class StageObjectiveOverlay : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// ボスの HP バーと通常のテキストを切り替える（どちらか一方だけを表示する）。
+    /// </summary>
     private void SetBossVisible(bool visible)
     {
         if (bossRoot != null)
@@ -414,20 +443,29 @@ public sealed class StageObjectiveOverlay : MonoBehaviour
 }
 
 /// <summary>
-/// StageObjectiveOverlay の Unity object に依存しない表示計算。
+/// StageObjectiveOverlay の表示に使う計算。Unity のオブジェクトに依存しないので、単体テストできる。
 /// </summary>
 public static class StageObjectiveOverlayMath
 {
+    /// <summary>
+    /// 残り時間（秒）を返す。0 未満にはならない。
+    /// </summary>
     public static float CalculateRemainingSeconds(float timeLimitSeconds, float elapsedSeconds)
     {
         return Mathf.Max(0f, timeLimitSeconds - Mathf.Max(0f, elapsedSeconds));
     }
 
+    /// <summary>
+    /// 残りの討伐数を返す。0 未満にはならない。
+    /// </summary>
     public static int CalculateRemainingKillCount(int targetKillCount, int currentKillCount)
     {
         return Mathf.Max(0, targetKillCount - Mathf.Max(0, currentKillCount));
     }
 
+    /// <summary>
+    /// ボスの HP バーの長さ（0〜1）を返す。
+    /// </summary>
     public static float CalculateBossHpFillAmount(int currentHp, int maxHp)
     {
         if (maxHp <= 0)
@@ -438,6 +476,9 @@ public static class StageObjectiveOverlayMath
         return Mathf.Clamp01((float)currentHp / maxHp);
     }
 
+    /// <summary>
+    /// 残り時間を「分:秒」（例：04:59）の文字列にする。
+    /// </summary>
     public static string FormatRemainingSeconds(float remainingSeconds)
     {
         var safeSeconds = Mathf.Max(0, Mathf.FloorToInt(remainingSeconds));

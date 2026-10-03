@@ -5,7 +5,9 @@ using Unity.Rendering;
 using Unity.Transforms;
 
 /// <summary>
-/// Runtime VFX の見た目更新をまとめて処理する。
+/// モンスターの被弾演出と死亡演出の見た目（色・大きさ）を毎フレーム更新する。
+/// 色はマテリアルを複製せず、Entity ごとの色の Component（URPMaterialPropertyBaseColor）を書き換えて変える。
+/// これにより、大量のモンスターがいても描画のまとめ処理（バッチング）が崩れにくい。
 /// </summary>
 [UpdateInGroup(typeof(SimulationSystemGroup))]
 [UpdateAfter(typeof(MonsterDestroySystem))]
@@ -29,6 +31,9 @@ public partial struct VFXPlaySystem : ISystem
         entityCommandBuffer.Dispose();
     }
 
+    /// <summary>
+    /// 被弾演出：被弾した瞬間の色から元の色へ、徐々に戻していく。終わったら元の色にして停止する。
+    /// </summary>
     private void PlayMonsterHitVfx(
         ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
@@ -75,6 +80,9 @@ public partial struct VFXPlaySystem : ISystem
         }
     }
 
+    /// <summary>
+    /// 死亡演出：色を変えながら小さくしていく。演出の終了後の処理（再利用・削除）は MonsterDestroySystem が行う。
+    /// </summary>
     private void PlayMonsterDestroyVfx(
         ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
@@ -110,10 +118,13 @@ public partial struct VFXPlaySystem : ISystem
 }
 
 /// <summary>
-/// Entity Graphics の BaseColor override を render Entity に適用する helper。
+/// 見た目の Entity に色を設定する処理（Entities Graphics の色の上書き機能を使う）。
 /// </summary>
 public static class VFXMaterialUtility
 {
+    /// <summary>
+    /// ルートの Entity と、それに紐付いた子の Entity のうち、描画されるものすべてに色を設定する。
+    /// </summary>
     public static void AddOrSetBaseColorForLinkedRenderEntities(
         ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
@@ -138,6 +149,9 @@ public static class VFXMaterialUtility
         }
     }
 
+    /// <summary>
+    /// 描画される Entity に色を設定する。描画されない Entity は無視する。
+    /// </summary>
     private static void AddOrSetBaseColorForRenderEntity(
         ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
@@ -160,7 +174,7 @@ public static class VFXMaterialUtility
             return;
         }
 
-        // Baker 側で override が付かない renderer でも VFX が無音で失敗しないよう、初回だけ追加する。
+        // Bake 時に色の Component が付いていない場合でも演出が効くよう、初回だけ追加する。
         entityCommandBuffer.AddComponent(entity, materialColor);
     }
 }

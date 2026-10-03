@@ -5,16 +5,26 @@ using UnityEngine;
 using UnityEngine.Serialization;
 
 /// <summary>
-/// Attack skill 定義を供給する Authoring の境界。
+/// 攻撃スキルの定義を提供する Authoring の共通インターフェース。
+/// PlayerEntity はこのインターフェースを通してスキルの定義を受け取るため、
+/// 定義の作り方が違う Authoring（AttackSkillAuthoring / InstantImpactSkillAuthoring）を同じように扱える。
 /// </summary>
 public interface IAttackSkillDefinitionAuthoring
 {
+    /// <summary>
+    /// 攻撃スキルの初期データを作る。
+    /// </summary>
     AttackSkillDefinition CreateAttackSkill();
+
+    /// <summary>
+    /// SFX / VFX の参照を作る。演出がない場合は false を返す。
+    /// </summary>
     bool TryCreatePresentation(out AttackSkillPresentation presentation);
 }
 
 /// <summary>
-/// SkillEntity prefab / scene object で attack skill の定義値を編集するための Authoring。
+/// 攻撃スキルの定義を Inspector で編集するための Authoring。スキル定義用の Prefab（SkillEntity）に付ける。
+/// 攻撃パターン・ダメージ・範囲・タイミング・デバフ・演出をすべてここで設定でき、コードを書かずに新しいスキルを作れる。
 /// </summary>
 public sealed class AttackSkillAuthoring : MonoBehaviour, IAttackSkillDefinitionAuthoring
 {
@@ -166,6 +176,9 @@ public sealed class AttackSkillAuthoring : MonoBehaviour, IAttackSkillDefinition
     [SerializeField]
     private GameObject VfxPrefab = null;
 
+    /// <summary>
+    /// Inspector で入力された値を、有効な範囲に収める。
+    /// </summary>
     private void OnValidate()
     {
         BaseDamage = math.max(0f, BaseDamage);
@@ -207,6 +220,9 @@ public sealed class AttackSkillAuthoring : MonoBehaviour, IAttackSkillDefinition
         VfxDisplayRadius = math.max(0f, VfxDisplayRadius);
     }
 
+    /// <summary>
+    /// Inspector の設定値から攻撃スキルの初期データを作る。
+    /// </summary>
     public AttackSkillDefinition CreateAttackSkill()
     {
         var definition = AttackSkillAuthoringUtility.CreateAttackSkill(
@@ -228,11 +244,15 @@ public sealed class AttackSkillAuthoring : MonoBehaviour, IAttackSkillDefinition
         ApplyTargetCountConfig(ref definition.Config);
         definition.AdvancedConfig = CreateAdvancedConfig();
         CopyDebuffSpecs(ref definition.DebuffSpecs);
+        // 演出が設定されている場合だけ、演出の完了を待ってからクールタイムに入る。
         definition.Timing.HasSfx = SfxClip != null ? (byte)1 : (byte)0;
         definition.Timing.HasVfx = VfxPrefab != null ? (byte)1 : (byte)0;
         return definition;
     }
 
+    /// <summary>
+    /// SFX / VFX の参照を作る。どちらも設定されていなければ false を返す。
+    /// </summary>
     public bool TryCreatePresentation(out AttackSkillPresentation presentation)
     {
         if (SfxClip == null &&
@@ -250,6 +270,9 @@ public sealed class AttackSkillAuthoring : MonoBehaviour, IAttackSkillDefinition
         return true;
     }
 
+    /// <summary>
+    /// 攻撃範囲の数に関する設定を反映する。
+    /// </summary>
     private void ApplyTargetCountConfig(ref AttackSkillConfig config)
     {
         config.BaseTargetCount = BaseTargetCount;
@@ -258,6 +281,9 @@ public sealed class AttackSkillAuthoring : MonoBehaviour, IAttackSkillDefinition
         config.TargetCountRoundMode = TargetCountRoundMode;
     }
 
+    /// <summary>
+    /// 攻撃パターンごとの追加設定を作る。
+    /// </summary>
     private AttackSkillAdvancedConfig CreateAdvancedConfig()
     {
         return AttackSkillAuthoringUtility.CreateAdvancedConfig(
@@ -275,11 +301,17 @@ public sealed class AttackSkillAuthoring : MonoBehaviour, IAttackSkillDefinition
             RepeatInterval);
     }
 
+    /// <summary>
+    /// Inspector で設定したデバフを、実行時の形式に変換してコピーする。
+    /// </summary>
     private void CopyDebuffSpecs(ref FixedList512Bytes<SkillDebuffSpec> debuffSpecs)
     {
         AttackSkillAuthoringUtility.CopyDebuffSpecs(OnHitDebuffs, ref debuffSpecs);
     }
 
+    /// <summary>
+    /// Inspector で入力されたデバフの値を、有効な範囲に収める。
+    /// </summary>
     private static void NormalizeDebuffAuthoringArray(SkillDebuffAuthoring[] debuffs)
     {
         if (debuffs == null)
@@ -307,6 +339,9 @@ public sealed class AttackSkillAuthoring : MonoBehaviour, IAttackSkillDefinition
 
     private sealed class Baker : Baker<AttackSkillAuthoring>
     {
+        /// <summary>
+        /// スキルの定義を Component に変換する。演出用の AudioClip や Prefab が変更されたときも Bake し直されるよう、依存関係を登録する。
+        /// </summary>
         public override void Bake(AttackSkillAuthoring authoring)
         {
             var entity = GetEntity(TransformUsageFlags.None);
@@ -345,10 +380,13 @@ public sealed class AttackSkillAuthoring : MonoBehaviour, IAttackSkillDefinition
 }
 
 /// <summary>
-/// SkillEntity authoring が使うデータ生成関数。
+/// スキル定義の Authoring（SkillEntity）で使う、データ作成の関数。
 /// </summary>
 public static class AttackSkillAuthoringUtility
 {
+    /// <summary>
+    /// 攻撃パターンごとの追加設定を、値を有効な範囲に収めたうえで作る。
+    /// </summary>
     public static AttackSkillAdvancedConfig CreateAdvancedConfig(
         float forwardSectorAngleDegrees,
         float lineWidth,
@@ -392,6 +430,10 @@ public static class AttackSkillAuthoringUtility
         };
     }
 
+    /// <summary>
+    /// Inspector で設定したデバフを実行時の形式に変換してコピーする。
+    /// 継続時間や発生確率が 0 のデバフは効果がないため除外し、上限を超えた分も除外する。
+    /// </summary>
     public static void CopyDebuffSpecs(
         SkillDebuffAuthoring[] authoringDebuffs,
         ref FixedList512Bytes<SkillDebuffSpec> debuffSpecs)
@@ -432,6 +474,9 @@ public static class AttackSkillAuthoringUtility
         }
     }
 
+    /// <summary>
+    /// 基本の設定だけで攻撃スキルを作る（タイミングは既定値）。
+    /// </summary>
     public static AttackSkillDefinition CreateAttackSkill(
         int id,
         float baseDamage,
@@ -472,6 +517,7 @@ public static class AttackSkillAuthoringUtility
         float vfxDelay,
         float vfxDuration)
     {
+        // VFX の大きさは既定値を使う。
         return CreateAttackSkill(
             id,
             baseDamage,
@@ -505,6 +551,7 @@ public static class AttackSkillAuthoringUtility
         float vfxPrefabRadius,
         float vfxDisplayRadius)
     {
+        // 基本の設定に加えて、ダメージ・SFX・VFX のタイミングと VFX の大きさも指定して作る。
         var definition = SkillDefaults.CreateDefaultAttackSkill(
             id,
             math.max(0f, baseDamage),

@@ -6,15 +6,15 @@ using Unity.Physics;
 using Unity.Transforms;
 
 /// <summary>
-/// DOTS Physics の static obstacle に対して、CollisionRadius を持つ Entity を XZ 平面で押し戻す。
-///
-/// この System は最後の保険として障害物侵入を解消する。経路探索が失敗しても entity が木や岩に
-/// めり込み続けないようにするため、押し戻しは Y を変更せず水平面だけに限定する。
+/// 木や岩などの障害物（StaticObstacleTag）にめり込んだ Entity を、水平方向に押し戻す。
+/// 経路探索で障害物を避けきれなかった場合の「最後の安全策」として動作する。
+/// 押し戻しは XZ 平面だけで行い、高さ（Y）は変えない。
 /// </summary>
 [UpdateAfter(typeof(MovementSystem))]
 [UpdateBefore(typeof(GroundSensorSystem))]
 public partial struct StaticObstacleCollisionSystem : ISystem
 {
+    // 押し戻しを繰り返す最大回数（障害物の角などで 1 回では解消しきれない場合のため）。
     private const int MaxResolveIterations = 3;
 
     private ComponentLookup<StaticObstacleTag> obstacleLookup;
@@ -61,7 +61,7 @@ public partial struct StaticObstacleCollisionSystem : ISystem
                     radius);
                 var movedThisIteration = false;
 
-                // 複数障害物の角では 1 回の query だけでは押し戻しが足りないため、少数回だけ反復する。
+                // 複数の障害物の角では、1 回押し戻しても別の障害物にめり込むことがあるため、数回だけ繰り返す。
                 obstacleHits.Clear();
                 collisionWorld.OverlapSphere(
                     resolvedCenter,
@@ -111,12 +111,12 @@ public partial struct StaticObstacleCollisionSystem : ISystem
 }
 
 /// <summary>
-/// StaticObstacleCollisionSystem が使う XZ 平面の押し戻し計算。
+/// 障害物からの押し戻しの計算処理。
 /// </summary>
 public static class StaticObstacleCollisionMath
 {
     /// <summary>
-    /// 足元 pivot と同じ XZ に、接触半径ぶん持ち上げた sphere query 中心を作る。
+    /// 判定に使う球の中心を求める（足元から半径の分だけ上に持ち上げ、地面と重ならないようにする）。
     /// </summary>
     public static float3 CalculateQueryCenter(float3 position, float radius)
     {
@@ -124,14 +124,14 @@ public static class StaticObstacleCollisionMath
     }
 
     /// <summary>
-    /// sphere query の hit 位置から XZ 平面だけを押し戻す。
+    /// 障害物上の最も近い点から離れる方向へ、めり込んだ分だけ水平に押し戻す。
     /// </summary>
-    /// <param name="position">補正対象 Entity の root 位置。Y は補正後も維持する。</param>
-    /// <param name="queryCenter">CollisionWorld に渡した sphere 中心。</param>
-    /// <param name="radius">XZ 平面で使う接触半径。</param>
-    /// <param name="hitPosition">static obstacle 上の最近接点。</param>
-    /// <param name="hitSurfaceNormal">最近接点の法線。中心と最近接点の XZ が一致した場合だけ使う。</param>
-    /// <returns>static obstacle の外側へ押し戻した root 位置。</returns>
+    /// <param name="position">押し戻す Entity の位置。Y はそのまま保つ。</param>
+    /// <param name="queryCenter">判定に使った球の中心。</param>
+    /// <param name="radius">当たり判定の半径。</param>
+    /// <param name="hitPosition">障害物上の最も近い点。</param>
+    /// <param name="hitSurfaceNormal">その点の法線。球の中心と最も近い点が水平方向で重なっている場合だけ使う。</param>
+    /// <returns>障害物の外側へ押し戻した位置。</returns>
     public static float3 ResolveHorizontalPenetration(
         float3 position,
         float3 queryCenter,
@@ -150,6 +150,7 @@ public static class StaticObstacleCollisionMath
         var distanceSq = math.lengthsq(centerToHit);
         float2 normal;
 
+        // 中心が障害物の真上・真下にあって方向が決まらない場合は、面の法線の方向へ押し出す。
         if (distanceSq <= 0.000001f)
         {
             normal = new float2(hitSurfaceNormal.x, hitSurfaceNormal.z);

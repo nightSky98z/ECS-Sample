@@ -3,16 +3,15 @@ using Unity.Mathematics;
 using UnityEngine.InputSystem;
 
 /// <summary>
-/// Unity Input System のキーボード入力を PlayerInput component に書き込む。
-///
-/// この System は入力デバイスを読む境界だけを担当し、移動量の適用は MovementSystem に委譲する。
-/// PlayerInput を常に上書きすることで、入力なしの frame でも古い入力が残らないようにする。
+/// キーボード入力（WASD）を読み取り、PlayerInput Component に書き込む。
+/// この System は「入力を読む」ことだけを担当し、実際の移動は MovementSystem に任せている。
+/// 毎フレーム必ず上書きするため、キーを離したフレームに古い入力が残ることはない。
 /// </summary>
 [UpdateBefore(typeof(MovementSystem))]
 public partial struct PlayerInputSystem : ISystem
 {
     /// <summary>
-    /// Player が存在する world でだけ input polling を有効にする。
+    /// プレイヤーがいる World でだけ入力を読むようにする。
     /// </summary>
     public void OnCreate(ref SystemState state)
     {
@@ -20,7 +19,7 @@ public partial struct PlayerInputSystem : ISystem
     }
 
     /// <summary>
-    /// Keyboard.current から WASD を読み、全 PlayerTag entity の PlayerInput.Move を更新する。
+    /// WASD キーの状態を読み、プレイヤーの PlayerInput.Move を更新する。ゲーム中以外（クリア後など）は入力を 0 にする。
     /// </summary>
     public void OnUpdate(ref SystemState state)
     {
@@ -45,7 +44,7 @@ public partial struct PlayerInputSystem : ISystem
 
             if (math.lengthsq(move) > 1f)
             {
-                // 斜め入力が軸入力より速くならないように、入力ベクトルだけを正規化する。
+                // 斜め移動が上下左右の移動より速くならないよう、長さを 1 に揃える。
                 move = math.normalize(move);
             }
         }

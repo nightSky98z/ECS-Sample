@@ -1,13 +1,13 @@
 using Unity.Mathematics;
 
 /// <summary>
-/// Skill system から独立して検査できる攻撃計算。
-/// EntityQuery や World 状態を読まず、値だけを入力にする。
+/// スキルの計算処理（ダメージ・クールタイム・範囲・タイミングなど）。
+/// EntityQuery や World の状態を読まず、引数の値だけから結果を計算するため、単体テストしやすい。
 /// </summary>
 public static class SkillMath
 {
     /// <summary>
-    /// Buff が何もない状態の倍率 accumulator を作る。
+    /// バフがない状態（すべての倍率が 1）の合算値を作る。
     /// </summary>
     public static BuffAccumulator CreateBuffAccumulator()
     {
@@ -22,7 +22,7 @@ public static class SkillMath
     }
 
     /// <summary>
-    /// 1 つの buff skill を accumulator へ反映する。
+    /// バフスキル 1 つ分の倍率を合算値に掛け合わせる。
     /// </summary>
     public static BuffAccumulator ApplyBuff(BuffAccumulator accumulator, BuffSkillConfig buff)
     {
@@ -51,7 +51,7 @@ public static class SkillMath
     }
 
     /// <summary>
-    /// Skill level から skill 固有のダメージ倍率を計算する。
+    /// スキルレベルからダメージ倍率を計算する（Lv1 で 1 倍、1 上がるごとに DamageRatePerLevel だけ増える）。
     /// </summary>
     public static float CalculateLevelRate(int level)
     {
@@ -64,7 +64,7 @@ public static class SkillMath
     }
 
     /// <summary>
-    /// Skill 定義、skill level、buff から最終ダメージを計算する。
+    /// スキルの基礎ダメージ・スキルレベル・バフから、最終的なダメージを計算する。
     /// </summary>
     public static float CalculateEffectiveDamage(
         AttackSkillConfig config,
@@ -75,7 +75,8 @@ public static class SkillMath
     }
 
     /// <summary>
-    /// Player level 倍率も含めて最終ダメージを計算する。
+    /// プレイヤーのレベルによる倍率も含めて、最終的なダメージを計算する。
+    /// 最終ダメージ = 基礎ダメージ × スキルレベル倍率 × プレイヤーレベル倍率 × バフ倍率
     /// </summary>
     public static float CalculateEffectiveDamage(
         AttackSkillConfig config,
@@ -90,7 +91,7 @@ public static class SkillMath
     }
 
     /// <summary>
-    /// Buff 適用後の cooldown 秒を計算する。
+    /// バフを反映したクールタイム（秒）を計算する。
     /// </summary>
     public static float CalculateEffectiveCooltime(
         AttackSkillConfig config,
@@ -100,7 +101,7 @@ public static class SkillMath
     }
 
     /// <summary>
-    /// Buff 適用後の対象探索半径を計算する。
+    /// バフを反映した、ターゲットを探す範囲の半径を計算する。
     /// </summary>
     public static float CalculateEffectiveTargetRange(
         AttackSkillConfig config,
@@ -110,7 +111,7 @@ public static class SkillMath
     }
 
     /// <summary>
-    /// Buff 適用後の攻撃判定半径を計算する。
+    /// バフを反映した、攻撃範囲の半径を計算する。
     /// </summary>
     public static float CalculateEffectiveAttackRange(
         AttackSkillConfig config,
@@ -120,7 +121,7 @@ public static class SkillMath
     }
 
     /// <summary>
-    /// float ダメージを HP component 用の整数値へ変換する。
+    /// 小数のダメージを、HP に適用する整数に変換する（切り上げ。小さなダメージが 0 にならないようにする）。
     /// </summary>
     public static int CalculateDamageToHp(float damage)
     {
@@ -128,7 +129,8 @@ public static class SkillMath
     }
 
     /// <summary>
-    /// Skill level から 1 回の発動で作る攻撃円数を計算する。
+    /// スキルレベルから、1 回の発動で置く攻撃範囲（円）の数を計算する。
+    /// 数 = 基本数 + (レベル - 1) × 係数（小数は roundMode で丸める）。上限を超えないようにする。
     /// </summary>
     public static int CalculateAttackCircleCount(
         int level,
@@ -159,7 +161,7 @@ public static class SkillMath
     }
 
     /// <summary>
-    /// 発動経過時間が指定 delay に到達したか判定する。
+    /// 発動からの経過時間が、指定した待ち時間に達したかを判定する。
     /// </summary>
     public static bool IsDelayReached(float elapsedTime, float delay)
     {
@@ -167,11 +169,11 @@ public static class SkillMath
     }
 
     /// <summary>
-    /// Casting 中の skill state に共通経過時間を進める。
+    /// 発動中のスキルの経過時間を進める。
     /// </summary>
     /// <remarks>
-    /// 発動開始フレームは進めない。Logic system が同フレームで target を確定し、
-    /// 次フレームから damage / presentation delay を評価するため。
+    /// 発動を開始したフレームでは進めない。
+    /// 開始したフレームでターゲットを確定し、次のフレームからダメージや演出のタイミングを判定するため。
     /// </remarks>
     public static AttackSkillState AdvanceCastElapsedTime(
         AttackSkillState state,
@@ -188,7 +190,8 @@ public static class SkillMath
     }
 
     /// <summary>
-    /// 現在の DamageApplyCount に対応する damage 判定予定時刻を返す。
+    /// 次のダメージを与える予定の時刻（発動からの経過時間）を返す。
+    /// 連続攻撃の場合、2 回目以降は RepeatInterval ずつ後ろにずれる。
     /// </summary>
     public static float CalculateDamageApplyDelay(
         AttackSkillTimingConfig timing,
@@ -200,7 +203,7 @@ public static class SkillMath
     }
 
     /// <summary>
-    /// 現在フレームで damage 判定を実行するべきか判定する。
+    /// このフレームでダメージを与えるべきかを判定する。
     /// </summary>
     public static bool ShouldApplySkillDamage(
         AttackSkillState state,
@@ -221,7 +224,7 @@ public static class SkillMath
     }
 
     /// <summary>
-    /// SFX / VFX の必要な presentation がすべて完了したか判定する。
+    /// 必要な演出（SFX・VFX）がすべて終わったかを判定する。
     /// </summary>
     public static bool IsPresentationComplete(
         AttackSkillState state,
@@ -234,7 +237,8 @@ public static class SkillMath
     }
 
     /// <summary>
-    /// VFX prefab の元半径と表示したい半径から localScale 倍率を計算する。
+    /// VFX の大きさの倍率を計算する（Prefab の元の大きさに対して、表示したい大きさが何倍か）。
+    /// これにより、攻撃範囲が変わっても VFX の見た目が範囲と一致する。
     /// </summary>
     public static float CalculateVfxScale(
         float attackRange,
@@ -249,7 +253,7 @@ public static class SkillMath
     }
 
     /// <summary>
-    /// XZ 方向ベクトルを方向 bucket index に変換する。
+    /// 方向ベクトル（XZ）が、周囲 360° を bucketCount 個に分けたうちの何番目のグループに入るかを返す。
     /// </summary>
     public static int CalculateDirectionBucketIndex(float2 direction, int bucketCount)
     {
@@ -273,7 +277,8 @@ public static class SkillMath
     }
 
     /// <summary>
-    /// 対象選択時の重みを計算する。近い対象ほど少し重くなる。
+    /// ターゲットを選ぶときの重みを計算する。近い敵ほど重みが大きく、選ばれやすくなる。
+    /// 重み = 1 + distanceWeight × (1 - 距離 / 範囲)
     /// </summary>
     public static float CalculateTargetSelectionWeight(
         float distanceSq,

@@ -3,14 +3,14 @@ using Unity.Entities;
 using Unity.Mathematics;
 
 /// <summary>
-/// Monster spawn tuning が読む共通ステージ進行度。
-///
-/// 各クリア条件は異なる component を持つが、MonsterSpawnDirectorSystem はこの 0..1 の値だけを読む。
+/// ステージの進み具合（0〜1）。クリア条件の種類に関係なく共通の値。
+/// クリア条件（時間・討伐数・ボス）ごとに状態の Component は異なるが、
+/// モンスターの出現処理はこの値だけを読めばよいので、クリア条件の種類を知らなくて済む。
 /// </summary>
 public struct StageSpawnProgress : IComponentData
 {
     /// <summary>
-    /// 0 = stage 開始付近、1 = clear 付近。範囲外値は計算側で丸める。
+    /// 0 = ステージ開始直後、1 = クリア直前。
     /// </summary>
     public float Value;
 }
@@ -21,29 +21,29 @@ public struct StageSpawnProgress : IComponentData
 public struct StageClearState : IComponentData
 {
     /// <summary>
-    /// 0 = not cleared, 1 = cleared。clear 後は latch して戻さない。
+    /// 1 ならクリア済み。一度クリアしたら 0 には戻さない。
     /// </summary>
     public byte IsCleared;
 }
 
 /// <summary>
-/// 時間上限でクリアする生存ステージの状態。
+/// 「制限時間まで生き残るとクリア」のステージの状態。
 /// </summary>
 public struct TimedSurvivalStageProgress : IComponentData
 {
     /// <summary>
-    /// クリアまでの制限時間秒。
+    /// クリアまでの制限時間（秒）。
     /// </summary>
     public float TimeLimitSeconds;
 
     /// <summary>
-    /// 進行済み秒数。clear 後は増やさない。
+    /// 経過時間（秒）。クリア後は増やさない。
     /// </summary>
     public float ElapsedSeconds;
 }
 
 /// <summary>
-/// Monster 討伐数でクリアするステージの状態。
+/// 「規定数のモンスターを倒すとクリア」のステージの状態。
 /// </summary>
 public struct KillCountStageProgress : IComponentData
 {
@@ -53,39 +53,39 @@ public struct KillCountStageProgress : IComponentData
     public int TargetKillCount;
 
     /// <summary>
-    /// 現在討伐数。MonsterDestroySystem が死亡確定時に加算する。
+    /// 現在の討伐数。モンスターが倒されたときに MonsterDestroySystem が加算する。
     /// </summary>
     public int CurrentKillCount;
 }
 
 /// <summary>
-/// Boss 残り HP でクリアするステージの状態。
+/// 「ボスを倒すとクリア」のステージの状態。
 /// </summary>
 public struct BossHealthStageProgress : IComponentData
 {
     /// <summary>
-    /// 監視する boss entity。Entity.Null の場合は CurrentHp / MaxHp を直接使う。
+    /// ボスの Entity。設定されていなければ、下の CurrentHp / MaxHp の値をそのまま使う。
     /// </summary>
     public Entity BossEntity;
 
     /// <summary>
-    /// Boss HP bar 表示用の最大 HP。
+    /// ボスの最大 HP（HP バーの表示にも使う）。
     /// </summary>
     public int MaxHp;
 
     /// <summary>
-    /// Boss HP bar 表示用の現在 HP。BossEntity が有効なら毎 frame 同期される。
+    /// ボスの現在の HP。ボスの Entity が設定されていれば、毎フレームその HP をコピーする。
     /// </summary>
     public int CurrentHp;
 }
 
 /// <summary>
-/// ステージ進行度の純粋計算。
+/// ステージの進み具合とクリア判定の計算。状態を持たない関数だけなので、単体テストしやすい。
 /// </summary>
 public static class StageProgressMath
 {
     /// <summary>
-    /// 生存ステージの補充用進行度を返す。
+    /// 生き残りステージの進み具合（経過時間 / 制限時間）を返す。
     /// </summary>
     public static float CalculateTimedSurvivalProgress(float elapsedSeconds, float timeLimitSeconds)
     {
@@ -98,7 +98,7 @@ public static class StageProgressMath
     }
 
     /// <summary>
-    /// 討伐ステージの補充用進行度を返す。
+    /// 討伐ステージの進み具合（討伐数 / 目標数）を返す。
     /// </summary>
     public static float CalculateKillCountProgress(int currentKillCount, int targetKillCount)
     {
@@ -111,7 +111,7 @@ public static class StageProgressMath
     }
 
     /// <summary>
-    /// 討伐数を非負差分で加算した次の値を返す。
+    /// 討伐数を加算した値を返す（負の値は 0 として扱う）。
     /// </summary>
     public static int AddKillCount(int currentKillCount, int deltaKillCount)
     {
@@ -119,7 +119,7 @@ public static class StageProgressMath
     }
 
     /// <summary>
-    /// Boss 残り HP から、0..1 の HP 減少率を返す。
+    /// ボスの HP がどれだけ減ったか（0〜1）を、進み具合として返す。
     /// </summary>
     public static float CalculateBossHealthProgress(int currentHp, int maxHp)
     {
@@ -134,7 +134,7 @@ public static class StageProgressMath
     }
 
     /// <summary>
-    /// 生存ステージがクリア済みかどうかを返す。
+    /// 生き残りステージをクリアしたかを返す。
     /// </summary>
     public static bool IsTimedSurvivalStageCleared(float elapsedSeconds, float timeLimitSeconds)
     {
@@ -142,7 +142,7 @@ public static class StageProgressMath
     }
 
     /// <summary>
-    /// 討伐ステージがクリア済みかどうかを返す。
+    /// 討伐ステージをクリアしたかを返す。
     /// </summary>
     public static bool IsKillCountStageCleared(int currentKillCount, int targetKillCount)
     {
@@ -150,7 +150,7 @@ public static class StageProgressMath
     }
 
     /// <summary>
-    /// Boss ステージがクリア済みかどうかを返す。
+    /// ボスステージをクリアしたかを返す。
     /// </summary>
     public static bool IsBossStageCleared(int currentHp)
     {
@@ -158,7 +158,7 @@ public static class StageProgressMath
     }
 
     /// <summary>
-    /// 一度 clear した stage を未 clear に戻さない。
+    /// クリア状態を更新する。一度クリアしたら、その後条件を満たさなくなってもクリアのままにする。
     /// </summary>
     public static byte LatchClearState(byte currentClearState, bool shouldClear)
     {
@@ -167,10 +167,9 @@ public static class StageProgressMath
 }
 
 /// <summary>
-/// 生存ステージの経過時間を更新する。
-///
-/// timeScale 停止中や Warmup 中は、この値も進まない。
-/// カード選択 phase ではステージ時間とモンスター更新を両方止める。
+/// 生き残りステージの経過時間を進め、進み具合とクリア状態を更新する。
+/// 準備中（Warmup）や Time.timeScale が 0 の間は、経過時間も進まない。
+/// 設計方針：カード選択 phase ではステージ時間とモンスター更新を両方止める。
 /// </summary>
 [UpdateBefore(typeof(MonsterSpawnDirectorSystem))]
 public partial struct TimedSurvivalStageSystem : ISystem
@@ -217,9 +216,8 @@ public partial struct TimedSurvivalStageSystem : ISystem
 }
 
 /// <summary>
-/// StageProgress が置かれた scene だけで、各ステージ条件から clear 状態を確定する。
-///
-/// clear 状態は latch され、一度 clear になった stage は同じ play session 中に未 clear へ戻らない。
+/// すべての種類のステージについて、クリア条件を満たしたかを最終的に確定する。
+/// 一度クリアしたステージは、同じプレイ中に未クリアへ戻らない。
 /// </summary>
 [UpdateAfter(typeof(TimedSurvivalStageSystem))]
 [UpdateAfter(typeof(KillCountStageSystem))]
@@ -267,7 +265,7 @@ public partial struct StageClearSystem : ISystem
 }
 
 /// <summary>
-/// 討伐数ステージの共通進行度とクリア状態を更新する。
+/// 討伐ステージの進み具合とクリア状態を更新する。
 /// </summary>
 [UpdateAfter(typeof(MonsterDestroySystem))]
 [UpdateBefore(typeof(MonsterSpawnDirectorSystem))]
@@ -295,7 +293,7 @@ public partial struct KillCountStageSystem : ISystem
 }
 
 /// <summary>
-/// Boss 残り HP から共通進行度とクリア状態を更新する。
+/// ボスの残り HP から、ボスステージの進み具合とクリア状態を更新する。
 /// </summary>
 [UpdateBefore(typeof(MonsterSpawnDirectorSystem))]
 public partial struct BossHealthStageSystem : ISystem
@@ -320,6 +318,7 @@ public partial struct BossHealthStageSystem : ISystem
             var currentHp = stage.ValueRO.CurrentHp;
             var maxHp = stage.ValueRO.MaxHp;
 
+            // ボスの Entity が設定されていれば、その HP を読み取ってコピーする。
             if (stage.ValueRO.BossEntity != Entity.Null &&
                 healthLookup.HasComponent(stage.ValueRO.BossEntity))
             {

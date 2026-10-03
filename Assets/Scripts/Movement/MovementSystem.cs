@@ -4,10 +4,10 @@ using Unity.Mathematics;
 using Unity.Transforms;
 
 /// <summary>
-/// MonsterSimpleAi の対象速度を計算する。
-///
-/// この System は horizontal velocity だけを決める。Y 速度は PhysicsSystem が所有するため、
-/// 重力や接地状態を AI が上書きしない。
+/// 単純 AI のモンスターを、プレイヤーに向かってまっすぐ進ませる（水平方向の速度を決める）。
+/// 縦方向（Y）の速度は PhysicsSystem が管理しているため、ここでは書き換えない。
+/// これにより、AI が重力や接地の処理を壊さないようにしている。
+/// デバフによる減速は DebuffAggregate の倍率を掛けるだけで反映される。
 /// </summary>
 [UpdateBefore(typeof(MovementSystem))]
 public partial struct MonsterSimpleAiSystem : ISystem
@@ -66,10 +66,9 @@ public partial struct MonsterSimpleAiSystem : ISystem
 }
 
 /// <summary>
-/// Velocity から LocalTransform を更新し、ゲーム用の接触半径で位置を補正する。
-///
-/// Rigidbody は使わず、ECS データの Velocity / CollisionRadius を直接処理する。
-/// Static obstacle との接触は StaticObstacleCollisionSystem に分離し、この System は動的 entity 同士だけを見る。
+/// Velocity に従ってプレイヤーとモンスターの位置を動かし、向きを更新する。
+/// Rigidbody は使わず、Velocity と CollisionRadius を直接計算することで、大量の Entity でも軽く動くようにしている。
+/// 押し戻しの対象はプレイヤーとモンスターの間だけ。木や岩などの障害物との衝突は StaticObstacleCollisionSystem が担当する。
 /// </summary>
 [UpdateAfter(typeof(PhysicsSystem))]
 public partial struct MovementSystem : ISystem
@@ -93,7 +92,8 @@ public partial struct MovementSystem : ISystem
 
         var deltaTime = SystemAPI.Time.DeltaTime;
 
-        // Player の horizontal velocity は入力と knockback の合成値で毎 frame 上書きする。
+        // --- 1. プレイヤーの速度を決める ---
+        // 水平方向の速度は、入力とノックバックを合成した値で毎フレーム上書きする。
         foreach (var (input, velocity, speed, knockback) in
                  SystemAPI.Query<RefRO<PlayerInput>, RefRW<Velocity>, RefRO<MoveSpeed>, RefRW<KnockbackVelocity>>()
                      .WithAll<PlayerTag>())
@@ -109,6 +109,7 @@ public partial struct MovementSystem : ISystem
                 deltaTime);
         }
 
+        // --- 2. プレイヤーを移動させ、モンスターと重なっていたら押し戻す ---
         foreach (var (transform, velocity, playerRadius, facing) in
                  SystemAPI.Query<RefRW<LocalTransform>, RefRW<Velocity>, RefRO<CollisionRadius>, RefRW<FacingDirection>>()
                      .WithAll<PlayerTag>())
@@ -121,7 +122,7 @@ public partial struct MovementSystem : ISystem
                          .WithAll<MonsterTag>()
                          .WithNone<MonsterDestroyVfxState>())
             {
-                // Dynamic 同士の押し戻しは XZ 平面だけに限定し、地面から浮き上がらないようにする。
+                // 押し戻しは XZ 平面だけで行い、上下方向には動かさない（地面から浮かないようにする）。
                 nextPosition = MovementMath.ResolveCirclePenetration(
                     nextPosition,
                     playerRadius.ValueRO.Value,
@@ -139,6 +140,7 @@ public partial struct MovementSystem : ISystem
             facing.ValueRW.Value = nextFacing;
         }
 
+        // --- 3. モンスターを移動させ、プレイヤーと重なっていたら押し戻す ---
         foreach (var (transform, velocity, monsterRadius, facing) in
                  SystemAPI.Query<RefRW<LocalTransform>, RefRW<Velocity>, RefRO<CollisionRadius>, RefRW<FacingDirection>>()
                      .WithAll<MonsterTag>()
@@ -171,19 +173,18 @@ public partial struct MovementSystem : ISystem
 }
 
 /// <summary>
-/// MovementSystem が使う移動計算。
-///
-/// テストしやすいよう、状態を持たない値計算だけをここに置く。
+/// 移動の計算処理。
+/// 状態を持たない計算だけをまとめた static クラスにして、単体テストしやすくしている。
 /// </summary>
 public static class MovementMath
 {
     /// <summary>
-    /// 入力移動と外力速度を合成し、次の水平速度を返す。
+    /// 入力による移動とノックバックを合成し、水平方向の速度を返す。
     /// </summary>
-    /// <param name="inputMove">長さ最大 1 の XZ 入力。</param>
-    /// <param name="moveSpeed">基礎移動速度。</param>
-    /// <param name="knockbackVelocity">被弾などで残っている追加速度。</param>
-    /// <returns>Y を 0 とした合成水平速度。</returns>
+    /// <param name="inputMove">移動入力（XZ、長さは最大 1）。</param>
+    /// <param name="moveSpeed">基本の移動速度。</param>
+    /// <param name="knockbackVelocity">ノックバックなどで残っている速度。</param>
+    /// <returns>合成した水平方向の速度（Y は 0）。</returns>
     public static float3 ComposeVelocity(float2 inputMove, float moveSpeed, float3 knockbackVelocity)
     {
         return new float3(inputMove.x, 0f, inputMove.y) * moveSpeed + knockbackVelocity;
@@ -194,7 +195,7 @@ public static class MovementMath
     /// </summary>
     /// <param name="velocity">減衰前の速度。</param>
     /// <param name="decayPerSecond">1 秒あたりに減らす速度量。</param>
-    /// <param name="deltaTime">今回の更新秒数。</param>
+    /// <param name="deltaTime">経過時間（秒）。</param>
     /// <returns>減衰後の速度。</returns>
     public static float3 DecayVelocity(float3 velocity, float decayPerSecond, float deltaTime)
     {
@@ -217,11 +218,11 @@ public static class MovementMath
     }
 
     /// <summary>
-    /// XZ 平面の速度から向きを更新する。Y 速度だけでは向きを変えない。
+    /// 水平方向の速度から向きを求める。止まっているとき（落下中を含む）は今の向きを保つ。
     /// </summary>
-    /// <param name="currentFacing">停止時に維持する現在向き。</param>
-    /// <param name="velocity">現在速度。x/z だけを参照する。</param>
-    /// <returns>次の XZ 平面向き。</returns>
+    /// <param name="currentFacing">今の向き。止まっているときはこの向きを返す。</param>
+    /// <param name="velocity">現在の速度。x と z だけを使う。</param>
+    /// <returns>新しい向き（XZ 平面）。</returns>
     public static float2 CalculateFacingDirection(float2 currentFacing, float3 velocity)
     {
         var move = new float2(velocity.x, velocity.z);
@@ -236,10 +237,10 @@ public static class MovementMath
     }
 
     /// <summary>
-    /// XZ 平面の向きを LocalTransform.Rotation に使う Y 軸回転へ変換する。
+    /// XZ 平面の向きを、LocalTransform.Rotation に設定する Y 軸回転に変換する。
     /// </summary>
-    /// <param name="facing">XZ 平面向き。</param>
-    /// <returns>+Z を正面とする Y 軸回転。</returns>
+    /// <param name="facing">XZ 平面の向き。</param>
+    /// <returns>+Z を正面とした Y 軸回転。</returns>
     public static quaternion CalculateFacingRotation(float2 facing)
     {
         var facingLengthSq = math.lengthsq(facing);
@@ -257,13 +258,13 @@ public static class MovementMath
     }
 
     /// <summary>
-    /// XZ 平面の円同士が重なっている場合、移動側の位置を外側へ押し戻す。
+    /// 2 つの円（XZ 平面）が重なっている場合、動いている側を相手の外側へ押し出す。
     /// </summary>
-    /// <param name="movingPosition">補正対象の位置。y は補正後も維持される。</param>
-    /// <param name="movingRadius">補正対象の接触半径。0 以下なら補正しない。</param>
-    /// <param name="blockingPosition">侵入できない相手側の位置。</param>
-    /// <param name="blockingRadius">相手側の接触半径。0 以下なら補正しない。</param>
-    /// <returns>重なりが解消された補正対象の位置。</returns>
+    /// <param name="movingPosition">押し出す側の位置。y はそのまま保つ。</param>
+    /// <param name="movingRadius">押し出す側の半径。</param>
+    /// <param name="blockingPosition">相手（動かない側）の位置。</param>
+    /// <param name="blockingRadius">相手の半径。</param>
+    /// <returns>重なりを解消した位置。</returns>
     public static float3 ResolveCirclePenetration(
         float3 movingPosition,
         float movingRadius,
@@ -288,6 +289,7 @@ public static class MovementMath
             return movingPosition;
         }
 
+        // 完全に同じ位置にいる場合は押し出す方向が決まらないため、+X 方向へ押し出す。
         if (distanceSq <= 0.000001f)
         {
             return new float3(
@@ -307,17 +309,17 @@ public static class MovementMath
 }
 
 /// <summary>
-/// MonsterSimpleAiSystem が使う移動判断。
+/// 単純 AI の移動計算。
 /// </summary>
 public static class MonsterSimpleAiMath
 {
     /// <summary>
-    /// 現在位置から target へ向かう XZ 平面上の速度を返す。
+    /// 現在の位置からターゲットへまっすぐ向かう速度（XZ 平面）を返す。
     /// </summary>
-    /// <param name="monsterPosition">モンスターの現在位置。</param>
-    /// <param name="targetPosition">追跡対象の現在位置。</param>
-    /// <param name="moveSpeed">移動速度。0 以下なら停止する。</param>
-    /// <returns>Y 成分を含まない追跡速度。</returns>
+    /// <param name="monsterPosition">モンスターの位置。</param>
+    /// <param name="targetPosition">追いかける相手の位置。</param>
+    /// <param name="moveSpeed">移動速度。0 以下なら止まる。</param>
+    /// <returns>追いかける速度（Y は 0）。</returns>
     public static float3 CalculateChaseVelocity(
         float3 monsterPosition,
         float3 targetPosition,

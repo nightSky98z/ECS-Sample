@@ -6,7 +6,8 @@ using Unity.Physics;
 using Unity.Transforms;
 
 /// <summary>
-/// SensorCollider の設定と CollisionWorld で接地状態を更新する。
+/// 足元の球（GroundSensor）と Unity Physics の CollisionWorld を使って接地を判定し、地面の高さに合わせる。
+/// 地面が見つからず、大きく落下していた場合は、最後に記録した地面の高さへ戻す。
 /// </summary>
 [UpdateAfter(typeof(MovementSystem))]
 [UpdateAfter(typeof(StaticObstacleCollisionSystem))]
@@ -37,6 +38,7 @@ public partial struct GroundSensorSystem : ISystem
             CollidesWith = ~0u,
             GroupIndex = 0
         };
+        // 結果を入れるリストは Entity ごとに作らず、使い回してメモリ確保を減らす。
         var groundHits = new NativeList<DistanceHit>(Allocator.Temp);
 
         foreach (var (transform, velocity, groundSnap, groundSensor, entity) in
@@ -57,6 +59,7 @@ public partial struct GroundSensorSystem : ISystem
                 continue;
             }
 
+            // 足元の球と重なっている Collider を取得する。
             groundHits.Clear();
             collisionWorld.OverlapSphere(
                 sensorShape.Center,
@@ -74,6 +77,7 @@ public partial struct GroundSensorSystem : ISystem
                 IsGrounded = 0
             };
 
+            // 地面（GroundTag）の中から、最も高い位置に立てるものを選ぶ。
             for (var hitIndex = 0; hitIndex < groundHits.Length; hitIndex++)
             {
                 var groundHit = groundHits[hitIndex];
@@ -108,6 +112,7 @@ public partial struct GroundSensorSystem : ISystem
 
             if (!hasGround)
             {
+                // 地面が見つからない場合は、すり抜けて落ちていないかを確認する。
                 if (fallRescueLookup.HasComponent(entity))
                 {
                     var rescueResult = PhysicsMath.RescueFallenBelowGround(
@@ -139,28 +144,33 @@ public partial struct GroundSensorSystem : ISystem
 }
 
 /// <summary>
-/// CollisionWorld の接地 query に渡す SensorCollider sphere のワールド形状。
+/// 接地判定に使う球の、ワールド座標での形。
 /// </summary>
 public struct GroundSensorWorldShape
 {
+    /// <summary>球の中心（ワールド座標）。</summary>
     public float3 Center;
+
+    /// <summary>球の半径（スケール反映済み）。</summary>
     public float Radius;
+
+    /// <summary>判定に使う半径（Radius に余裕の幅 Skin を足したもの）。</summary>
     public float QueryRadius;
 }
 
 /// <summary>
-/// GroundSensorSystem が使う接地センサー計算。
+/// 接地判定用の球の計算処理。
 /// </summary>
 public static class GroundSensorMath
 {
     /// <summary>
-    /// root local の GroundSensor を CollisionWorld query 用のワールド sphere に変換する。
+    /// Entity のローカル座標で定義された球を、ワールド座標の球に変換する。
     /// </summary>
-    /// <param name="sensor">Bake 済みの root local センサー情報。</param>
-    /// <param name="position">Entity root のワールド位置。</param>
-    /// <param name="rotation">Entity root のワールド回転。</param>
-    /// <param name="scale">Entity root の uniform scale。</param>
-    /// <returns>CollisionWorld へ渡す sphere 中心、実半径、skin 込み query 半径。</returns>
+    /// <param name="sensor">Bake 済みの球の情報（ローカル座標）。</param>
+    /// <param name="position">Entity のワールド位置。</param>
+    /// <param name="rotation">Entity のワールド回転。</param>
+    /// <param name="scale">Entity のスケール（全軸共通）。</param>
+    /// <returns>球の中心・半径・判定に使う半径。</returns>
     public static GroundSensorWorldShape CalculateWorldShape(
         GroundSensor sensor,
         float3 position,

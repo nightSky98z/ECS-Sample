@@ -3,10 +3,10 @@ using Unity.Entities;
 using Unity.Mathematics;
 
 /// <summary>
-/// Velocity.y に重力を適用する。
-///
-/// 水平移動は MovementSystem、接地検出は GroundSensorSystem が担当する。
-/// この System は「落下速度を積分する」責務だけに閉じる。
+/// 重力を Velocity.y に加え、落下速度を計算する。
+/// 役割分担：水平方向の移動は MovementSystem、接地の判定は GroundSensorSystem が担当し、
+/// この System は「重力で落下速度を増やす」ことだけを行う。
+/// Rigidbody を使わず自前で計算することで、大量の Entity でも処理を軽く保っている。
 /// </summary>
 [UpdateAfter(typeof(PlayerInputSystem))]
 [UpdateAfter(typeof(MonsterSimpleAiSystem))]
@@ -50,41 +50,40 @@ public partial struct PhysicsSystem : ISystem
 }
 
 /// <summary>
-/// 地面接地処理の結果。
+/// 接地処理の結果（補正後の位置・速度・接地しているか）。
 /// </summary>
 public struct GroundSnapResult
 {
     /// <summary>
-    /// 接地補正後の root 位置。
+    /// 補正後の位置。
     /// </summary>
     public float3 Position;
 
     /// <summary>
-    /// 接地補正後の速度。下向き速度は接地時に 0 へ丸める。
+    /// 補正後の速度。接地した場合、下向きの速度は 0 にする。
     /// </summary>
     public float3 Velocity;
 
     /// <summary>
-    /// 0 = airborne, 1 = grounded。
+    /// 1 なら接地中、0 なら空中。
     /// </summary>
     public byte IsGrounded;
 }
 
 /// <summary>
-/// PhysicsSystem と接地処理が使う物理計算。
-///
-/// Unity Physics の query 結果を直接保持せず、テスト可能な値計算だけをここに置く。
+/// 重力と接地の計算処理。
+/// Unity Physics に依存しない値の計算だけをまとめ、単体テストしやすくしている。
 /// </summary>
 public static class PhysicsMath
 {
     /// <summary>
-    /// 接地状態を見ながら Velocity.y に重力加速度を適用する。
+    /// 重力加速度を Y 方向の速度に加える。接地中で下向きに動いている場合は、速度を 0 にする。
     /// </summary>
-    /// <param name="velocityY">現在の Y 速度。</param>
-    /// <param name="acceleration">Y 速度へ加算する重力加速度。</param>
-    /// <param name="deltaTime">今回の更新秒数。</param>
-    /// <param name="isGrounded">0 以外なら接地中として扱う。</param>
-    /// <returns>次の Y 速度。</returns>
+    /// <param name="velocityY">現在の Y 方向の速度。</param>
+    /// <param name="acceleration">重力加速度。</param>
+    /// <param name="deltaTime">経過時間（秒）。</param>
+    /// <param name="isGrounded">0 以外なら接地中。</param>
+    /// <returns>新しい Y 方向の速度。</returns>
     public static float ApplyGravity(
         float velocityY,
         float acceleration,
@@ -105,12 +104,12 @@ public static class PhysicsMath
     }
 
     /// <summary>
-    /// 足元 pivot の位置を地面高さへ制限し、落下速度を消す。
+    /// 足元（Pivot）が地面より下にあれば地面の高さに合わせ、落下速度を 0 にする。
     /// </summary>
-    /// <param name="position">接地判定前の位置。</param>
-    /// <param name="velocity">接地判定前の速度。</param>
-    /// <param name="groundY">足元 pivot が接地するワールド Y 座標。</param>
-    /// <returns>接地補正後の位置、速度、接地状態。</returns>
+    /// <param name="position">補正前の位置。</param>
+    /// <param name="velocity">補正前の速度。</param>
+    /// <param name="groundY">地面の高さ（ワールド座標の Y）。</param>
+    /// <returns>補正後の位置・速度・接地状態。</returns>
     public static GroundSnapResult SnapToGround(float3 position, float3 velocity, float groundY)
     {
         if (position.y > groundY)
@@ -139,15 +138,16 @@ public static class PhysicsMath
     }
 
     /// <summary>
-    /// SensorCollider sphere の下端を Ground collider の高さへ合わせ、落下速度を消す。
+    /// 接地判定用の球の下端が地面に触れる高さまで Entity を移動させ、落下速度を 0 にする。
+    /// 上向きに動いている場合や、地面から離れすぎている場合は接地とみなさない。
     /// </summary>
-    /// <param name="position">接地補正前の Entity root 位置。</param>
-    /// <param name="velocity">接地補正前の速度。</param>
-    /// <param name="sensorCenterY">SensorCollider sphere 中心のワールド Y 座標。</param>
-    /// <param name="sensorRadius">SensorCollider sphere のワールド半径。</param>
-    /// <param name="groundY">Ground collider 上の最接近点 Y 座標。</param>
-    /// <param name="skin">接地として許容する余白距離。</param>
-    /// <returns>接地補正後の位置、速度、接地状態。</returns>
+    /// <param name="position">補正前の Entity の位置。</param>
+    /// <param name="velocity">補正前の速度。</param>
+    /// <param name="sensorCenterY">判定用の球の中心の高さ（ワールド座標）。</param>
+    /// <param name="sensorRadius">判定用の球の半径（ワールド座標）。</param>
+    /// <param name="groundY">地面上の最も近い点の高さ。</param>
+    /// <param name="skin">接地とみなす余裕の幅。</param>
+    /// <returns>補正後の位置・速度・接地状態。</returns>
     public static GroundSnapResult SnapToGroundFromSensor(
         float3 position,
         float3 velocity,
@@ -156,6 +156,7 @@ public static class PhysicsMath
         float groundY,
         float skin)
     {
+        // 球の下端（中心 - 半径）がちょうど地面に触れるときの、Entity 原点の高さ。
         var groundedPositionY = position.y + groundY + sensorRadius - sensorCenterY;
 
         if (velocity.y > 0f || position.y > groundedPositionY + skin)
@@ -184,13 +185,14 @@ public static class PhysicsMath
     }
 
     /// <summary>
-    /// 接地 query をすり抜けて最後の地面高さより深く落ちた Entity を救済する。
+    /// 地面をすり抜けて、最後に記録した地面の高さより大きく落ちてしまった Entity を地面の上に戻す。
+    /// （FPS が低いと 1 フレームの移動量が大きくなり、接地判定をすり抜けることがあるため）
     /// </summary>
-    /// <param name="position">救済前の位置。</param>
-    /// <param name="velocity">救済前の速度。</param>
-    /// <param name="groundY">最後に記録した地面高さ。</param>
-    /// <param name="maxBelowGroundY">この深さを超えたら救済する。0 以下は救済しない。</param>
-    /// <returns>救済後の位置、速度、接地状態。</returns>
+    /// <param name="position">補正前の位置。</param>
+    /// <param name="velocity">補正前の速度。</param>
+    /// <param name="groundY">最後に記録した地面の高さ。</param>
+    /// <param name="maxBelowGroundY">地面からこの距離以上落ちたら戻す。0 以下なら何もしない。</param>
+    /// <returns>補正後の位置・速度・接地状態。</returns>
     public static GroundSnapResult RescueFallenBelowGround(
         float3 position,
         float3 velocity,

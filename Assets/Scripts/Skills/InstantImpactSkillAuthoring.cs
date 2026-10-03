@@ -5,11 +5,12 @@ using UnityEngine;
 using UnityEngine.Serialization;
 
 /// <summary>
-/// 瞬時インパクト系の攻撃スキル定義。
-/// 攻撃ロジックを差し替えることで、同じ SkillEntity から派生攻撃ロジックを検証できる。
+/// 瞬間的に衝撃を与えるタイプの攻撃スキルの定義（AttackSkillAuthoring と同じ項目を持ち、タイミングの初期値だけが異なる）。
+/// 攻撃パターンを切り替えるだけで、同じスキル定義用の Prefab（SkillEntity）でさまざまな攻撃を試せる。
 /// </summary>
 public sealed class InstantImpactSkillAuthoring : MonoBehaviour, IAttackSkillDefinitionAuthoring
 {
+    // このタイプのスキルの ID。
     private const int SkillId = 0;
 
     [Tooltip("バフやレベル倍率を掛ける前の基礎ダメージ。")]
@@ -156,6 +157,9 @@ public sealed class InstantImpactSkillAuthoring : MonoBehaviour, IAttackSkillDef
     [SerializeField]
     private GameObject VfxPrefab = null;
 
+    /// <summary>
+    /// Inspector で入力された値を、有効な範囲に収める。
+    /// </summary>
     private void OnValidate()
     {
         BaseDamage = math.max(0f, BaseDamage);
@@ -197,6 +201,9 @@ public sealed class InstantImpactSkillAuthoring : MonoBehaviour, IAttackSkillDef
         VfxDisplayRadius = math.max(0f, VfxDisplayRadius);
     }
 
+    /// <summary>
+    /// Inspector の設定値から攻撃スキルの初期データを作る。
+    /// </summary>
     public AttackSkillDefinition CreateAttackSkill()
     {
         var definition = AttackSkillAuthoringUtility.CreateAttackSkill(
@@ -218,11 +225,15 @@ public sealed class InstantImpactSkillAuthoring : MonoBehaviour, IAttackSkillDef
         ApplyTargetCountConfig(ref definition.Config);
         definition.AdvancedConfig = CreateAdvancedConfig();
         CopyDebuffSpecs(ref definition.DebuffSpecs);
+        // 演出が設定されている場合だけ、演出の完了を待ってからクールタイムに入る。
         definition.Timing.HasSfx = SfxClip != null ? (byte)1 : (byte)0;
         definition.Timing.HasVfx = VfxPrefab != null ? (byte)1 : (byte)0;
         return definition;
     }
 
+    /// <summary>
+    /// SFX / VFX の参照を作る。どちらも設定されていなければ false を返す。
+    /// </summary>
     public bool TryCreatePresentation(out AttackSkillPresentation presentation)
     {
         if (SfxClip == null &&
@@ -240,6 +251,9 @@ public sealed class InstantImpactSkillAuthoring : MonoBehaviour, IAttackSkillDef
         return true;
     }
 
+    /// <summary>
+    /// 攻撃範囲の数に関する設定を反映する。
+    /// </summary>
     private void ApplyTargetCountConfig(ref AttackSkillConfig config)
     {
         config.BaseTargetCount = BaseTargetCount;
@@ -248,6 +262,9 @@ public sealed class InstantImpactSkillAuthoring : MonoBehaviour, IAttackSkillDef
         config.TargetCountRoundMode = TargetCountRoundMode;
     }
 
+    /// <summary>
+    /// 攻撃パターンごとの追加設定を作る。
+    /// </summary>
     private AttackSkillAdvancedConfig CreateAdvancedConfig()
     {
         return AttackSkillAuthoringUtility.CreateAdvancedConfig(
@@ -265,11 +282,17 @@ public sealed class InstantImpactSkillAuthoring : MonoBehaviour, IAttackSkillDef
             RepeatInterval);
     }
 
+    /// <summary>
+    /// Inspector で設定したデバフを、実行時の形式に変換してコピーする。
+    /// </summary>
     private void CopyDebuffSpecs(ref FixedList512Bytes<SkillDebuffSpec> debuffSpecs)
     {
         AttackSkillAuthoringUtility.CopyDebuffSpecs(OnHitDebuffs, ref debuffSpecs);
     }
 
+    /// <summary>
+    /// Inspector で入力されたデバフの値を、有効な範囲に収める。
+    /// </summary>
     private static void NormalizeDebuffAuthoringArray(SkillDebuffAuthoring[] debuffs)
     {
         if (debuffs == null)
@@ -297,6 +320,9 @@ public sealed class InstantImpactSkillAuthoring : MonoBehaviour, IAttackSkillDef
 
     private sealed class Baker : Baker<InstantImpactSkillAuthoring>
     {
+        /// <summary>
+        /// スキルの定義を Component に変換する。演出用の AudioClip や Prefab が変更されたときも Bake し直されるよう、依存関係を登録する。
+        /// </summary>
         public override void Bake(InstantImpactSkillAuthoring authoring)
         {
             var entity = GetEntity(TransformUsageFlags.None);

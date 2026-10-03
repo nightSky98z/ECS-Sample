@@ -6,15 +6,16 @@ using Unity.Physics;
 using Unity.Transforms;
 
 /// <summary>
-/// Map Cell instance に baked local PCG 配置を一度だけ展開する。
-///
-/// PCG の random 配置は Baker 側で prefab-local な buffer に固定される。
-/// runtime では cell root transform に合わせて instantiate するだけにし、毎 frame の random 生成を避ける。
+/// セルが生成されたら、Bake 時に計算しておいた配置をもとに、木や岩などの静的メッシュを生成する。
+/// ・配置の計算は Bake 時に済んでいるため、ゲーム中は生成するだけで済む
+/// ・1 フレームに生成する数には上限を設け、処理落ちを防ぐ（続きは次のフレームで生成する）
+/// ・生成の優先順位：プレイヤーがいるセル → 画面に映るセル → その他のセル
 /// </summary>
 [UpdateAfter(typeof(MapCellSystem))]
 [UpdateBefore(typeof(StaticObstacleCollisionSystem))]
 public partial struct PCGStaticMeshLocalSpawnSystem : ISystem
 {
+    // Collider を持つ Entity を見分けるための Query（障害物タグを付ける対象を選ぶのに使う）。
     private EntityQuery physicsColliderQuery;
 
     [BurstCompile]
@@ -37,6 +38,7 @@ public partial struct PCGStaticMeshLocalSpawnSystem : ISystem
         var hasPlayer = TryGetPlayerPosition(ref state, out var playerPosition);
         var hasCameraBounds = TryGetCameraBounds(ref state, out var cameraBounds);
 
+        // 1. プレイヤーがいるセルを最優先で生成する
         SpawnCenterCellStaticMeshes(
             ref state,
             ref entityCommandBuffer,
@@ -45,6 +47,7 @@ public partial struct PCGStaticMeshLocalSpawnSystem : ISystem
             hasPlayer,
             playerPosition,
             hasCameraBounds);
+        // 2. それ以外のセルを、画面に映るセル → その他のセルの順で生成する
         SpawnNonCenterCellStaticMeshes(
             ref state,
             ref entityCommandBuffer,
@@ -85,6 +88,9 @@ public partial struct PCGStaticMeshLocalSpawnSystem : ISystem
         return false;
     }
 
+    /// <summary>
+    /// プレイヤーがいるセルの静的メッシュを生成する。
+    /// </summary>
     private void SpawnCenterCellStaticMeshes(
         ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
@@ -121,6 +127,10 @@ public partial struct PCGStaticMeshLocalSpawnSystem : ISystem
         }
     }
 
+    /// <summary>
+    /// プレイヤーがいるセル以外の静的メッシュを、画面に映るセルを優先して生成する。
+    /// 画面に映るセルとその他のセルで、1 フレームの生成数の上限を別々に持つ。
+    /// </summary>
     private void SpawnNonCenterCellStaticMeshes(
         ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
@@ -176,6 +186,10 @@ public partial struct PCGStaticMeshLocalSpawnSystem : ISystem
         }
     }
 
+    /// <summary>
+    /// 画面に映るセル（spawnVisibleCells が true）、またはその他のセルの静的メッシュを、上限の数まで生成する。
+    /// </summary>
+    /// <returns>生成した数。</returns>
     private int SpawnNonCenterCellStaticMeshesForConfig(
         ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
@@ -235,6 +249,9 @@ public partial struct PCGStaticMeshLocalSpawnSystem : ISystem
         return maxSpawnCount - remainingSpawnBudget;
     }
 
+    /// <summary>
+    /// セルが画面に映る可能性があり、優先して生成すべきかを返す。
+    /// </summary>
     private static bool IsVisiblePriorityCell(
         MapCell cell,
         MapCellConfig config,
@@ -259,6 +276,11 @@ public partial struct PCGStaticMeshLocalSpawnSystem : ISystem
             config.StaticMeshVisiblePadding);
     }
 
+    /// <summary>
+    /// セル 1 つ分の静的メッシュを、前回の続きから上限の数まで生成する。
+    /// すべて生成し終えたら、セルを「生成済み」にし、経路探索用データの作成を 1 フレーム後に始めるよう設定する。
+    /// </summary>
+    /// <returns>生成した数。</returns>
     private static int SpawnCellStaticMeshes(
         ref EntityCommandBuffer entityCommandBuffer,
         EntityQueryMask physicsColliderMask,
@@ -288,11 +310,12 @@ public partial struct PCGStaticMeshLocalSpawnSystem : ISystem
                 PCGStaticMeshUtility.CreateWorldPlacementTransform(
                     cellTransform,
                     localInstance));
-            // LinkedEntityGroup 内の collider entity に StaticObstacleTag を付け、障害物 query の対象にする。
+            // Prefab の中で Collider を持つ Entity に障害物タグを付け、当たり判定と経路探索の対象にする。
             entityCommandBuffer.AddComponentForLinkedEntityGroup(
                 objectEntity,
                 physicsColliderMask,
                 new StaticObstacleTag());
+            // セルが削除されるときに一緒に削除できるよう、セルの持ち物として登録する。
             entityCommandBuffer.AppendToBuffer(cellEntity, new MapCellOwnedEntityElement
             {
                 Value = objectEntity
@@ -311,6 +334,9 @@ public partial struct PCGStaticMeshLocalSpawnSystem : ISystem
         return spawnedCount;
     }
 
+    /// <summary>
+    /// セルがプレイヤーのいるセルかを返す。
+    /// </summary>
     private static bool IsPlayerCenterCell(
         ComponentLookup<MapCellConfig> mapCellConfigLookup,
         MapCell cell,

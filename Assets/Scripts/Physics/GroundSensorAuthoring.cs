@@ -2,7 +2,8 @@ using Unity.Mathematics;
 using UnityEngine;
 
 /// <summary>
-/// Prefab 上で接地センサーの中心と半径を調整するための Authoring。
+/// 接地判定に使う球の位置と半径を、Prefab 上で調整するための Authoring。
+/// この GameObject の位置が球の中心になる。
 /// </summary>
 public sealed class GroundSensorAuthoring : MonoBehaviour
 {
@@ -19,6 +20,9 @@ public sealed class GroundSensorAuthoring : MonoBehaviour
     public float SensorRadius => Radius;
     public float SensorSkin => Skin;
 
+    /// <summary>
+    /// 負の値が入力された場合に正の値へ直す。
+    /// </summary>
     private void OnValidate()
     {
         Radius = math.abs(Radius);
@@ -26,6 +30,9 @@ public sealed class GroundSensorAuthoring : MonoBehaviour
     }
 
 #if UNITY_EDITOR
+    /// <summary>
+    /// Scene ビューに判定用の球を表示する。
+    /// </summary>
     private void OnDrawGizmos()
     {
         var previousColor = Gizmos.color;
@@ -39,17 +46,17 @@ public sealed class GroundSensorAuthoring : MonoBehaviour
 }
 
 /// <summary>
-/// GroundSensorAuthoring と Baker が共有するデータ変換。
+/// GroundSensorAuthoring と Baker で共通に使う変換処理。
 /// </summary>
 public static class GroundSensorAuthoringMath
 {
     /// <summary>
-    /// Authoring 値から runtime 用 GroundSensor を作る。
+    /// Inspector の設定値から GroundSensor Component を作る。
     /// </summary>
-    /// <param name="localCenter">root Entity から見た sensor 中心。</param>
-    /// <param name="radius">root Entity の local 空間へ変換済みの半径。</param>
-    /// <param name="skin">接地許容距離。</param>
-    /// <returns>runtime 用 GroundSensor。</returns>
+    /// <param name="localCenter">Entity の原点から見た球の中心。</param>
+    /// <param name="radius">Entity のローカル座標での半径。</param>
+    /// <param name="skin">接地とみなす余裕の幅。</param>
+    /// <returns>作成した GroundSensor。</returns>
     public static GroundSensor CreateSensorData(float3 localCenter, float radius, float skin)
     {
         return new GroundSensor
@@ -61,7 +68,7 @@ public static class GroundSensorAuthoringMath
     }
 
     /// <summary>
-    /// scale の最大絶対値を返す。
+    /// スケールの各軸のうち、絶対値が最も大きいものを返す（球の半径にかけるため）。
     /// </summary>
     public static float GetMaxAbsScale(float3 scale)
     {

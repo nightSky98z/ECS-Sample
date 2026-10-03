@@ -722,6 +722,7 @@ Shader "Hidden/lilToonRefraction"
             #define LIL_OPTIMIZE_APPLY_SHADOW_FA
             #define LIL_OPTIMIZE_USE_FORWARDADD
             #define LIL_OPTIMIZE_USE_VERTEXLIGHT
+            #pragma skip_variants LIGHTMAP_ON DYNAMICLIGHTMAP_ON LIGHTMAP_SHADOW_MIXING SHADOWS_SHADOWMASK DIRLIGHTMAP_COMBINED _MIXED_LIGHTING_SUBTRACTIVE
             #define LIL_SRP_VERSION_MAJOR 17
             #define LIL_SRP_VERSION_MINOR 4
             #define LIL_SRP_VERSION_PATCH 0
@@ -730,6 +731,9 @@ Shader "Hidden/lilToonRefraction"
             #pragma fragmentoption ARB_precision_hint_fastest
             #define LIL_REFRACTION
 
+            #pragma skip_variants DECALS_OFF DECALS_3RT DECALS_4RT DECAL_SURFACE_GRADIENT _DBUFFER_MRT1 _DBUFFER_MRT2 _DBUFFER_MRT3
+            #pragma skip_variants _ADDITIONAL_LIGHT_SHADOWS
+            #pragma skip_variants _SCREEN_SPACE_OCCLUSION
         ENDHLSL
 
 
@@ -769,8 +773,8 @@ Shader "Hidden/lilToonRefraction"
             #pragma multi_compile _ _ADDITIONAL_LIGHTS_VERTEX _ADDITIONAL_LIGHTS
             #pragma multi_compile _ PROBE_VOLUMES_L1 PROBE_VOLUMES_L2
             #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
-            #pragma multi_compile _ _REFLECTION_PROBE_BLENDING
-            #pragma multi_compile _ _REFLECTION_PROBE_BOX_PROJECTION
+            #pragma multi_compile_fragment _ _REFLECTION_PROBE_BLENDING
+            #pragma multi_compile_fragment _ _REFLECTION_PROBE_BOX_PROJECTION
             #pragma multi_compile_fragment _ _SHADOWS_SOFT
             #pragma multi_compile_fragment _ _SCREEN_SPACE_OCCLUSION
             #pragma multi_compile_fragment _ _DBUFFER_MRT1 _DBUFFER_MRT2 _DBUFFER_MRT3
@@ -1137,6 +1141,7 @@ Shader "Hidden/lilToonRefraction"
             #define LIL_OPTIMIZE_APPLY_SHADOW_FA
             #define LIL_OPTIMIZE_USE_FORWARDADD
             #define LIL_OPTIMIZE_USE_VERTEXLIGHT
+            #pragma skip_variants LIGHTMAP_ON DYNAMICLIGHTMAP_ON LIGHTMAP_SHADOW_MIXING SHADOWS_SHADOWMASK DIRLIGHTMAP_COMBINED _MIXED_LIGHTING_SUBTRACTIVE
             #define LIL_SRP_VERSION_MAJOR 17
             #define LIL_SRP_VERSION_MINOR 4
             #define LIL_SRP_VERSION_PATCH 0
@@ -1145,6 +1150,9 @@ Shader "Hidden/lilToonRefraction"
             #pragma fragmentoption ARB_precision_hint_fastest
             #define LIL_REFRACTION
 
+            #pragma skip_variants DECALS_OFF DECALS_3RT DECALS_4RT DECAL_SURFACE_GRADIENT _DBUFFER_MRT1 _DBUFFER_MRT2 _DBUFFER_MRT3
+            #pragma skip_variants _ADDITIONAL_LIGHT_SHADOWS
+            #pragma skip_variants _SCREEN_SPACE_OCCLUSION
         ENDHLSL
 
 
@@ -1184,8 +1192,8 @@ Shader "Hidden/lilToonRefraction"
             #pragma multi_compile _ _ADDITIONAL_LIGHTS_VERTEX _ADDITIONAL_LIGHTS
             #pragma multi_compile _ PROBE_VOLUMES_L1 PROBE_VOLUMES_L2
             #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
-            #pragma multi_compile _ _REFLECTION_PROBE_BLENDING
-            #pragma multi_compile _ _REFLECTION_PROBE_BOX_PROJECTION
+            #pragma multi_compile_fragment _ _REFLECTION_PROBE_BLENDING
+            #pragma multi_compile_fragment _ _REFLECTION_PROBE_BOX_PROJECTION
             #pragma multi_compile_fragment _ _SHADOWS_SOFT
             #pragma multi_compile_fragment _ _SCREEN_SPACE_OCCLUSION
             #pragma multi_compile_fragment _ _DBUFFER_MRT1 _DBUFFER_MRT2 _DBUFFER_MRT3

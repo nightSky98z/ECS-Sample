@@ -12,7 +12,12 @@ using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
 /// <summary>
-/// Editor と Development Build だけで生成される runtime debug option window。
+/// ゲーム中に表示・操作できるデバッグ用ウィンドウ（Esc キーで開閉）。エディタと開発ビルドでだけ有効になる。
+/// できること：
+/// ・FPS、プレイヤーのレベル、スキルスロットの状態の表示
+/// ・スキルレベルの上げ下げ
+/// ・プレイヤーの当たり判定、スキルのターゲット範囲・攻撃範囲の可視化
+/// パラメータの調整や不具合の確認を、ゲームを止めずに素早く行えるようにするためのツール。
 /// </summary>
 public sealed class DebugOptionsOverlay : MonoBehaviour
 {
@@ -111,12 +116,18 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
     private readonly Image[] slotIconImages = new Image[PlayerCombatConstants.MaxSkillCount];
     private readonly Text[] slotIconTexts = new Text[PlayerCombatConstants.MaxSkillCount];
 
+    /// <summary>
+    /// スキルスロット 1 つ分のアイコンの表示内容。
+    /// </summary>
     private struct SkillSlotIconData
     {
         public string Text;
         public Color Color;
     }
 
+    /// <summary>
+    /// 装備中のスキルのレベルの集計（最小・最大と、上げ下げできるか）。
+    /// </summary>
     private struct SkillLevelSummary
     {
         public int MinLevel;
@@ -127,7 +138,7 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
     }
 
     /// <summary>
-    /// Scene に手動配置しなくても debug overlay を 1 つだけ作る。
+    /// シーンに手動で置かなくても、デバッグ用ウィンドウを自動で 1 つだけ作る。
     /// </summary>
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void CreateOverlay()
@@ -147,6 +158,9 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
     }
 
 #if UNITY_EDITOR
+    /// <summary>
+    /// Play モードの終了時に、デバッグ表示用に作ったオブジェクトを片付けるよう登録する。
+    /// </summary>
     [UnityEditor.InitializeOnLoadMethod]
     private static void RegisterEditorCleanup()
     {
@@ -167,6 +181,9 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
     }
 #endif
 
+    /// <summary>
+    /// 重複して作られた場合は、自分を削除して 1 つだけにする。
+    /// </summary>
     private void Awake()
     {
         var overlays = Object.FindObjectsByType<DebugOptionsOverlay>(FindObjectsInactive.Exclude);
@@ -190,6 +207,9 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         DestroyRuntimeUi();
     }
 
+    /// <summary>
+    /// Esc キーでウィンドウを開閉し、FPS の計測・マウス操作・UI の更新を行う。
+    /// </summary>
     private void Update()
     {
         var keyboard = Keyboard.current;
@@ -211,6 +231,10 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         DebugOptionsRuntimeDrawer.Dispose();
     }
 
+    /// <summary>
+    /// 有効になっている可視化オプション（当たり判定・スキル範囲）を描画する。
+    /// すべて無効なら、描画用のオブジェクトを非表示にする。
+    /// </summary>
     private void LateUpdate()
     {
         if (!DebugOptionsRuntimeDrawer.HasAnyOptionEnabled(
@@ -229,6 +253,9 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
             isSkillAttackRangeVisible);
     }
 
+    /// <summary>
+    /// FPS を計測する。一定時間（FpsRefreshSeconds）ごとに平均をとり、表示が細かく揺れすぎないようにする。
+    /// </summary>
     private void UpdateFps(float deltaTime)
     {
         var instantFps = DebugOptionsOverlayMath.CalculateInstantFps(deltaTime);
@@ -256,6 +283,9 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         fpsFrameCount = 0;
     }
 
+    /// <summary>
+    /// デバッグ用の UI をすべて生成する。1 つでも欠けていれば、いったん破棄して作り直す。
+    /// </summary>
     private bool EnsureRuntimeUi()
     {
         if (overlayCanvas != null &&
@@ -380,6 +410,9 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         return true;
     }
 
+    /// <summary>
+    /// スキルスロットの数だけアイコンを生成する。
+    /// </summary>
     private void CreateSkillSlotIcons()
     {
         for (var iconIndex = 0; iconIndex < slotIconImages.Length; iconIndex++)
@@ -397,6 +430,9 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// ウィンドウ上のマウス操作を処理する（リサイズ・ボタン・チェックボックス・タイトルバーのドラッグ）。
+    /// </summary>
     private void ProcessPointerInput()
     {
         if (!isWindowOpen)
@@ -489,6 +525,9 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// スキルレベルの「-」「+」ボタンが押されたら、装備中のスキルのレベルを変える。
+    /// </summary>
     private bool TryHandleSkillLevelButton(Vector2 mousePosition)
     {
         if (GetSkillLevelMinusButtonRect().Contains(mousePosition))
@@ -506,6 +545,9 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         return false;
     }
 
+    /// <summary>
+    /// クリックされたチェックボックスのオン・オフを切り替える。
+    /// </summary>
     private bool TryToggleClickedOption(Vector2 mousePosition)
     {
         if (GetToggleRect(FpsToggleY).Contains(mousePosition))
@@ -547,6 +589,9 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         return false;
     }
 
+    /// <summary>
+    /// 現在の設定とゲームの状態に合わせて、UI の表示内容と配置を更新する。
+    /// </summary>
     private void UpdateRuntimeUi()
     {
         if (!EnsureRuntimeUi())
@@ -718,6 +763,9 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         ownsOverlayCanvas = false;
     }
 
+    /// <summary>
+    /// ウィンドウの位置と大きさを初期化する（初回は画面右側に置く）。画面の外にはみ出さないようにする。
+    /// </summary>
     private void EnsureWindowRect(Vector2 canvasSize)
     {
         if (hasWindowRect)
@@ -759,6 +807,9 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// ECS からプレイヤーの経験値とレベルを読み取る。
+    /// </summary>
     private static bool ReadPlayerExperience(out ExperienceComponent experience)
     {
         experience = default;
@@ -784,6 +835,9 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         return true;
     }
 
+    /// <summary>
+    /// ECS からプレイヤーが装備しているスキルのレベルを集計する。
+    /// </summary>
     private static bool ReadPlayerSkillLevelSummary(out SkillLevelSummary summary)
     {
         summary = new SkillLevelSummary
@@ -814,6 +868,9 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         return summary.HasAnySkill != 0;
     }
 
+    /// <summary>
+    /// プレイヤーが装備しているすべてのスキルのレベルを delta だけ変える（上限・下限の範囲内）。
+    /// </summary>
     private static bool TryAdjustPlayerSkillSlotLevels(int delta)
     {
         var world = World.DefaultGameObjectInjectionWorld;
@@ -837,6 +894,9 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         return changedCount > 0;
     }
 
+    /// <summary>
+    /// ECS からプレイヤーのスキルスロットの状態を読み取り、アイコンの表示内容を作る。
+    /// </summary>
     private static void ReadPlayerSkillSlotIcons(SkillSlotIconData[] icons)
     {
         ResetSkillSlotIcons(icons);
@@ -897,6 +957,9 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         };
     }
 
+    /// <summary>
+    /// 攻撃スキルの状態（未装備・発動予約・クールタイム中・発動可能）に応じたアイコンの色を返す。
+    /// </summary>
     private static Color CalculateAttackSkillSlotColor(bool isEquipped, AttackSkillState state)
     {
         if (!isEquipped)
@@ -1237,6 +1300,10 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
             SkillLevelButtonSize);
     }
 
+    /// <summary>
+    /// マウス座標（画面左下が原点）を、Canvas の左上を原点とした座標に変換する。
+    /// CanvasScaler で UI が拡大縮小されていても、クリック判定がずれないようにするため。
+    /// </summary>
     private Vector2 ToCanvasTopLeftMousePosition(Vector2 bottomLeftMousePosition)
     {
         if (overlayCanvas != null &&
@@ -1257,6 +1324,9 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
         return new Vector2(bottomLeftMousePosition.x, Screen.height - bottomLeftMousePosition.y);
     }
 
+    /// <summary>
+    /// 画面サイズに合わせて UI を拡大縮小するように設定する。
+    /// </summary>
     private static void ConfigureCanvasScaler(CanvasScaler canvasScaler)
     {
         canvasScaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
@@ -1357,7 +1427,8 @@ public sealed class DebugOptionsOverlay : MonoBehaviour
 }
 
 /// <summary>
-/// DebugOptionsOverlay の runtime ECS wireframe 描画。
+/// デバッグ用の可視化（当たり判定・スキル範囲）を描画する。
+/// ECS のデータを読み取って線で描くだけで、ゲームの状態は変更しない。
 /// </summary>
 public static class DebugOptionsRuntimeDrawer
 {
@@ -1372,6 +1443,9 @@ public static class DebugOptionsRuntimeDrawer
     private static readonly Color SkillTargetRangeColor = new Color(0.2f, 0.45f, 1f, 1f);
     private static readonly Color SkillAttackRangeColor = new Color(1f, 0.15f, 0.15f, 1f);
 
+    /// <summary>
+    /// 可視化オプションが 1 つでも有効かを返す。
+    /// </summary>
     public static bool HasAnyOptionEnabled(
         bool showPlayerColliderWireframe,
         bool showSkillTargetRange,
@@ -1382,6 +1456,9 @@ public static class DebugOptionsRuntimeDrawer
                showSkillAttackRange;
     }
 
+    /// <summary>
+    /// 有効になっているオプションの可視化を描画する。
+    /// </summary>
     public static void Draw(
         bool showPlayerColliderWireframe,
         bool showSkillTargetRange,
@@ -1408,6 +1485,9 @@ public static class DebugOptionsRuntimeDrawer
         DebugOptionsRangeRenderer.HideSkillRanges();
     }
 
+    /// <summary>
+    /// 描画に使ったデータとオブジェクトをすべて片付ける。
+    /// </summary>
     public static void Dispose()
     {
         SkillAttackRangeDebugEvents.Clear();
@@ -1428,6 +1508,9 @@ public static class DebugOptionsRuntimeDrawer
         return true;
     }
 
+    /// <summary>
+    /// プレイヤーの当たり判定（ゲーム用の半径・接地判定の球・物理 Collider）を描画する。
+    /// </summary>
     private static void DrawPlayerColliders(EntityManager entityManager)
     {
         DrawPlayerCollisionRadiusWireframes(entityManager);
@@ -1520,6 +1603,9 @@ public static class DebugOptionsRuntimeDrawer
         query.Dispose();
     }
 
+    /// <summary>
+    /// スキルのターゲット範囲（青）と攻撃範囲（赤）を描画する。
+    /// </summary>
     private static void DrawSkillRanges(
         EntityManager entityManager,
         bool showSkillTargetRange,
@@ -1544,6 +1630,9 @@ public static class DebugOptionsRuntimeDrawer
         }
     }
 
+    /// <summary>
+    /// 装備中の攻撃スキルの、ターゲットを探す範囲を描画する。
+    /// </summary>
     private static void DrawSkillTargetRanges(EntityManager entityManager)
     {
         var attackQuery = entityManager.CreateEntityQuery(
@@ -1601,6 +1690,9 @@ public static class DebugOptionsRuntimeDrawer
         attackQuery.Dispose();
     }
 
+    /// <summary>
+    /// 直近に発生した攻撃範囲を、時間とともに薄くしながら描画する。
+    /// </summary>
     private static void DrawSkillAttackRangeEvents()
     {
         SkillAttackRangeDebugEvents.DrawAndUpdate(
@@ -1735,17 +1827,23 @@ public static class DebugOptionsRuntimeDrawer
 }
 
 /// <summary>
-/// DebugOptions が描画する attack range の一時表示イベント。
+/// デバッグ表示用に記録した、1 回分の攻撃範囲。
 /// </summary>
 public struct SkillAttackRangeDebugEvent
 {
+    /// <summary>攻撃範囲の中心。</summary>
     public float3 Center;
+
+    /// <summary>攻撃範囲の半径。</summary>
     public float Radius;
+
+    /// <summary>記録した時刻（秒）。時間とともに表示を薄くするために使う。</summary>
     public float StartedAtSeconds;
 }
 
 /// <summary>
-/// SkillLogicSystem から DebugOptions へ attack range 発生位置を渡す debug 専用バッファ。
+/// SkillLogicSystem からデバッグ表示へ、攻撃範囲の発生位置を渡すためのデバッグ専用の記録。
+/// 表示が有効なときだけ記録し、無効なときは何もしないので、通常のプレイには影響しない。
 /// </summary>
 public static class SkillAttackRangeDebugEvents
 {
@@ -1755,6 +1853,9 @@ public static class SkillAttackRangeDebugEvents
     private static readonly List<SkillAttackRangeDebugEvent> Events = new List<SkillAttackRangeDebugEvent>(32);
     private static bool isRecordingEnabled;
 
+    /// <summary>
+    /// 記録するかどうかを切り替える。無効にしたら記録を消す。
+    /// </summary>
     public static void SetRecordingEnabled(bool enabled)
     {
         if (isRecordingEnabled == enabled)
@@ -1770,6 +1871,9 @@ public static class SkillAttackRangeDebugEvents
         }
     }
 
+    /// <summary>
+    /// 攻撃範囲を 1 つ記録する。記録数が上限を超えたら古いものから消す。
+    /// </summary>
     public static void Record(float3 center, float radius)
     {
         if (!isRecordingEnabled || radius <= 0f)
@@ -1795,12 +1899,18 @@ public static class SkillAttackRangeDebugEvents
         });
     }
 
+    /// <summary>
+    /// 記録をすべて消す。
+    /// </summary>
     public static void Clear()
     {
         Events.Clear();
         DebugOptionsRangeRenderer.FinishAttackFrame(0);
     }
 
+    /// <summary>
+    /// 記録された攻撃範囲を描画し、表示時間を過ぎたものを消す。
+    /// </summary>
     public static void DrawAndUpdate(
         float currentTimeSeconds,
         float lifetimeSeconds,
@@ -1843,6 +1953,9 @@ public static class SkillAttackRangeDebugEvents
         DebugOptionsRangeRenderer.FinishAttackFrame(renderedRangeCount);
     }
 
+    /// <summary>
+    /// 表示時間を過ぎた記録を消す。
+    /// </summary>
     private static void PruneExpiredEvents(float currentTimeSeconds, float lifetimeSeconds)
     {
         for (var eventIndex = Events.Count - 1; eventIndex >= 0; eventIndex--)
@@ -1861,7 +1974,8 @@ public static class SkillAttackRangeDebugEvents
 }
 
 /// <summary>
-/// DebugOptions の range 円を Game View に直接出す LineRenderer pool。
+/// スキル範囲の円を Game ビューに表示するための LineRenderer の管理（使い回し用のプール）。
+/// Gizmos は Game ビューやビルドでは表示されないため、LineRenderer で描画している。
 /// </summary>
 public static class DebugOptionsRangeRenderer
 {
@@ -1874,6 +1988,9 @@ public static class DebugOptionsRangeRenderer
     private static Transform root;
     private static UnityEngine.Material lineMaterial;
 
+    /// <summary>
+    /// ターゲット範囲の円を描画する。
+    /// </summary>
     public static void DrawTargetCircle(
         int rendererIndex,
         float3 center,
@@ -1883,6 +2000,9 @@ public static class DebugOptionsRangeRenderer
         DrawCircle(TargetRangeLines, "Debug Target Range", rendererIndex, center, radius, color);
     }
 
+    /// <summary>
+    /// 攻撃範囲の円を描画する。
+    /// </summary>
     public static void DrawAttackCircle(
         int rendererIndex,
         float3 center,
@@ -1892,22 +2012,34 @@ public static class DebugOptionsRangeRenderer
         DrawCircle(AttackRangeLines, "Debug Attack Range", rendererIndex, center, radius, color);
     }
 
+    /// <summary>
+    /// このフレームで使わなかったターゲット範囲用の LineRenderer を非表示にする。
+    /// </summary>
     public static void FinishTargetFrame(int usedCount)
     {
         DisableUnused(TargetRangeLines, usedCount);
     }
 
+    /// <summary>
+    /// このフレームで使わなかった攻撃範囲用の LineRenderer を非表示にする。
+    /// </summary>
     public static void FinishAttackFrame(int usedCount)
     {
         DisableUnused(AttackRangeLines, usedCount);
     }
 
+    /// <summary>
+    /// スキル範囲の表示をすべて非表示にする。
+    /// </summary>
     public static void HideSkillRanges()
     {
         DisableUnused(TargetRangeLines, 0);
         DisableUnused(AttackRangeLines, 0);
     }
 
+    /// <summary>
+    /// 作成した LineRenderer とマテリアルをすべて破棄する。
+    /// </summary>
     public static void DisposeAll()
     {
         DestroyRenderers(TargetRangeLines);
@@ -1959,6 +2091,9 @@ public static class DebugOptionsRangeRenderer
         }
     }
 
+    /// <summary>
+    /// プールから LineRenderer を取り出す。足りなければ新しく作る。
+    /// </summary>
     private static LineRenderer GetLineRenderer(
         List<LineRenderer> renderers,
         string objectName,
@@ -1972,6 +2107,9 @@ public static class DebugOptionsRangeRenderer
         return renderers[rendererIndex];
     }
 
+    /// <summary>
+    /// 円の描画用の LineRenderer を作る。
+    /// </summary>
     private static LineRenderer CreateLineRenderer(string objectName)
     {
         var gameObject = new GameObject(objectName);
@@ -2019,6 +2157,9 @@ public static class DebugOptionsRangeRenderer
         return root;
     }
 
+    /// <summary>
+    /// 線の描画に使うマテリアルを返す（初回だけ作成する）。
+    /// </summary>
     private static UnityEngine.Material GetLineMaterial()
     {
         if (lineMaterial != null)
@@ -2052,6 +2193,9 @@ public static class DebugOptionsRangeRenderer
         return lineMaterial;
     }
 
+    /// <summary>
+    /// 使わなかった LineRenderer を非表示にする。
+    /// </summary>
     private static void DisableUnused(List<LineRenderer> renderers, int usedCount)
     {
         var safeUsedCount = math.max(0, usedCount);
@@ -2101,10 +2245,13 @@ public static class DebugOptionsRangeRenderer
 }
 
 /// <summary>
-/// DebugOptions range renderer の入力に依存しない計算。
+/// スキル範囲の円の描画に使う計算。Unity のオブジェクトに依存しないので、単体テストできる。
 /// </summary>
 public static class DebugOptionsRangeRendererMath
 {
+    /// <summary>
+    /// 円周を segmentCount 等分したときの、segmentIndex 番目の点の座標（XZ 平面）を返す。
+    /// </summary>
     public static Vector3 CalculateCirclePoint(
         float3 center,
         float radius,
@@ -2123,10 +2270,13 @@ public static class DebugOptionsRangeRendererMath
 }
 
 /// <summary>
-/// Skill range debug 表示の入力に依存しない計算。
+/// 攻撃範囲のデバッグ表示に使う計算。
 /// </summary>
 public static class SkillAttackRangeDebugMath
 {
+    /// <summary>
+    /// 経過時間に応じた表示の不透明度（1 → 0）を返す。
+    /// </summary>
     public static float CalculateFadeAlpha(float elapsedSeconds, float lifetimeSeconds)
     {
         if (lifetimeSeconds <= 0f)
@@ -2137,6 +2287,9 @@ public static class SkillAttackRangeDebugMath
         return math.saturate(1f - math.max(0f, elapsedSeconds) / lifetimeSeconds);
     }
 
+    /// <summary>
+    /// 記録がまだ表示時間内かを返す。
+    /// </summary>
     public static bool IsEventAlive(
         float startedAtSeconds,
         float currentTimeSeconds,
@@ -2147,14 +2300,14 @@ public static class SkillAttackRangeDebugMath
 }
 
 /// <summary>
-/// DebugOptionsOverlay の入力に依存しない計算。
+/// デバッグ用ウィンドウの計算と表示用の文字列の作成。Unity のオブジェクトに依存しないので、単体テストできる。
 /// </summary>
 public static class DebugOptionsOverlayMath
 {
     /// <summary>
-    /// 1 frame の経過秒数から瞬間 FPS を計算する。
+    /// 1 フレームの経過時間から、その瞬間の FPS を計算する。
     /// </summary>
-    /// <param name="deltaTime">前 frame からの経過秒数。</param>
+    /// <param name="deltaTime">前のフレームからの経過時間（秒）。</param>
     /// <returns>deltaTime が正の場合は FPS。それ以外は 0。</returns>
     public static float CalculateInstantFps(float deltaTime)
     {
@@ -2167,13 +2320,13 @@ public static class DebugOptionsOverlayMath
     }
 
     /// <summary>
-    /// 画面右側に置く初期 window 矩形を作る。
+    /// ウィンドウの初期位置（画面の右側）と大きさを決める。
     /// </summary>
-    /// <param name="screenWidth">現在の Game View 幅。</param>
-    /// <param name="screenHeight">現在の Game View 高さ。</param>
-    /// <param name="size">初期 window サイズ。</param>
-    /// <param name="margin">画面端からの余白。</param>
-    /// <returns>画面内に収まる初期 window 矩形。</returns>
+    /// <param name="screenWidth">画面の幅。</param>
+    /// <param name="screenHeight">画面の高さ。</param>
+    /// <param name="size">ウィンドウの初期サイズ。</param>
+    /// <param name="margin">画面の端からの余白。</param>
+    /// <returns>画面内に収まるウィンドウの位置と大きさ。</returns>
     public static Rect CalculateDefaultWindowRect(
         float screenWidth,
         float screenHeight,
@@ -2190,13 +2343,13 @@ public static class DebugOptionsOverlayMath
     }
 
     /// <summary>
-    /// window 矩形を最小サイズ以上かつ画面内へ制限する。
+    /// ウィンドウが最小サイズより小さくならず、画面の外にはみ出さないように補正する。
     /// </summary>
-    /// <param name="rect">現在の window 矩形。</param>
-    /// <param name="screenWidth">現在の Game View 幅。</param>
-    /// <param name="screenHeight">現在の Game View 高さ。</param>
-    /// <param name="minimumSize">縮小できる最小サイズ。</param>
-    /// <returns>制限後の window 矩形。</returns>
+    /// <param name="rect">現在のウィンドウの位置と大きさ。</param>
+    /// <param name="screenWidth">画面の幅。</param>
+    /// <param name="screenHeight">画面の高さ。</param>
+    /// <param name="minimumSize">最小サイズ。</param>
+    /// <returns>補正後のウィンドウの位置と大きさ。</returns>
     public static Rect ClampWindowRect(
         Rect rect,
         float screenWidth,
@@ -2216,10 +2369,10 @@ public static class DebugOptionsOverlayMath
     }
 
     /// <summary>
-    /// Debug 表示用の player level 文字列を作る。
+    /// プレイヤーのレベルと経験値の表示用の文字列を作る。
     /// </summary>
-    /// <param name="experience">Player の現在経験値。</param>
-    /// <returns>簡易 debug UI に表示する level / EXP 文字列。</returns>
+    /// <param name="experience">プレイヤーの経験値の状態。</param>
+    /// <returns>レベルと経験値を表す文字列。</returns>
     public static string FormatLevelText(ExperienceComponent experience)
     {
         return string.Format(
@@ -2231,11 +2384,11 @@ public static class DebugOptionsOverlayMath
     }
 
     /// <summary>
-    /// Attack skill slot の小さい debug icon に表示する文字を作る。
+    /// 攻撃スキルのスロットのアイコンに表示する文字を作る。
     /// </summary>
     /// <param name="isEquipped">装備中なら true。</param>
-    /// <param name="config">装備中 skill の定義値。</param>
-    /// <returns>未装備は "-"、装備中は skill id。</returns>
+    /// <param name="config">装備中のスキルの設定。</param>
+    /// <returns>未装備なら "-"、装備中ならスキルの ID。</returns>
     public static string FormatAttackSkillSlotIconText(bool isEquipped, AttackSkillConfig config)
     {
         if (!isEquipped)
@@ -2247,7 +2400,7 @@ public static class DebugOptionsOverlayMath
     }
 
     /// <summary>
-    /// Debug 操作用の skill level 増減を通常仕様の範囲へ制限する。
+    /// スキルレベルを増減し、通常の上限・下限の範囲に収める。
     /// </summary>
     public static int ApplySkillLevelDelta(int currentLevel, int delta)
     {
@@ -2258,7 +2411,7 @@ public static class DebugOptionsOverlayMath
     }
 
     /// <summary>
-    /// Debug 表示用に equipped skill 全体の level 範囲を表示する。
+    /// 装備中のスキル全体のレベルの範囲を、表示用の文字列にする（すべて同じならその値、違えば「最小-最大」）。
     /// </summary>
     public static string FormatSkillLevelSummary(int minLevel, int maxLevel)
     {
@@ -2278,7 +2431,7 @@ public static class DebugOptionsOverlayMath
     }
 
     /// <summary>
-    /// Buff skill slot の小さい debug icon に表示する文字を作る。
+    /// バフスキルのスロットのアイコンに表示する文字を作る。
     /// </summary>
     public static string FormatBuffSkillSlotIconText(bool isEquipped, BuffSkillConfig config)
     {

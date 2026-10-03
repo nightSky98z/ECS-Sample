@@ -6,94 +6,94 @@ using Unity.Transforms;
 using UnityEngine;
 
 /// <summary>
-/// Player 周辺に維持する Map Cell prefab の設定。
+/// 無限マップの設定。マップは正方形の「セル」に区切られ、プレイヤーの周囲のセルだけを生成しておく。
 /// </summary>
 public struct MapCellConfig : IComponentData
 {
     /// <summary>
-    /// 座標ごとの prefab 選択を決定する seed。
+    /// セルごとに使う Prefab を決める乱数の seed（同じ座標には常に同じ Prefab が選ばれる）。
     /// </summary>
     public int WorldSeed;
 
     /// <summary>
-    /// XZ 平面上の cell 一辺の長さ。
+    /// セル 1 辺の長さ（XZ 平面）。
     /// </summary>
     public float CellSize;
 
     /// <summary>
-    /// player がいる cell から Chebyshev 距離で維持する半径。
+    /// プレイヤーがいるセルから何セル先まで読み込むか（チェビシェフ距離）。
     /// </summary>
     public int LoadRadiusInCells;
 
     /// <summary>
-    /// gameplay が依存してよい完成済み cell 半径。
+    /// ゲームの処理が「必ず完成している」とみなしてよいセルの半径。
     /// </summary>
     public int ActiveRadiusInCells;
 
     /// <summary>
-    /// gameplay 中に先回りして生成する cell 半径。
+    /// プレイヤーが到達する前に、先回りして生成しておくセルの半径。
     /// </summary>
     public int PreloadRadiusInCells;
 
     /// <summary>
-    /// この半径より外側の cell を削除候補にする。
+    /// この半径より外側のセルは削除する。
     /// </summary>
     public int UnloadRadiusInCells;
 
     /// <summary>
-    /// 1 frame で作成する cell root 数の上限。
+    /// 1 フレームで生成するセルの数の上限。
     /// </summary>
     public int MaxCellCreatesPerFrame;
 
     /// <summary>
-    /// 1 frame で削除する cell owned entity root 数の上限。
+    /// 1 フレームで削除する、セル内のオブジェクト（木や岩など）の数の上限。
     /// </summary>
     public int MaxOwnedEntityDestroysPerFrame;
 
     /// <summary>
-    /// 1 frame で生成する cell 内 static mesh 数の上限。
+    /// 1 フレームで生成する、セル内の静的メッシュ（木や岩など）の数の上限。
     /// </summary>
     public int MaxStaticMeshSpawnsPerFrame;
 
     /// <summary>
-    /// 画面に入る可能性がある cell で、1 frame に生成する static mesh 数の上限。
+    /// 画面に映る可能性があるセルで、1 フレームに優先して生成する静的メッシュの数の上限。
     /// </summary>
     public int MaxVisibleStaticMeshSpawnsPerFrame;
 
     /// <summary>
-    /// Camera の地面表示範囲に足す world 単位の余白。
+    /// 「画面に映る範囲」の判定に足す余白（ワールド座標の単位）。
     /// </summary>
     public float StaticMeshVisiblePadding;
 
     /// <summary>
-    /// 1 frame で navigation build する cell 数の上限。
+    /// 1 フレームで経路探索用データを作るセルの数の上限。
     /// </summary>
     public int MaxNavBuildCellsPerFrame;
 
     /// <summary>
-    /// 0 = preload では後方 cell を省略できる, 1 = preload 半径内を全方向生成する。
+    /// 1 なら先回り生成の範囲を全方向で生成する。0 なら進行方向の後ろ側のセルを省略する。
     /// </summary>
     public byte PreloadBehindCells;
 
     /// <summary>
-    /// 後方省略時、移動方向との dot がこの値以上なら preload 対象にする。
+    /// 後ろ側を省略するとき、移動方向との内積がこの値以上のセルだけを先回り生成する。
     /// </summary>
     public float ForwardPreloadDotThreshold;
 
     /// <summary>
-    /// cell root を置く world Y。
+    /// セルを置く高さ（ワールド座標の Y）。
     /// </summary>
     public float GroundY;
 }
 
 /// <summary>
-/// Runtime で選択する Map Cell prefab 候補。
+/// セルとして使う Prefab の候補。
 /// </summary>
 [InternalBufferCapacity(8)]
 public struct MapCellPrefabElement : IBufferElementData
 {
     /// <summary>
-    /// Instantiate する cell prefab entity。
+    /// セルの Prefab（Entity）。
     /// </summary>
     public Entity Prefab;
 
@@ -104,77 +104,76 @@ public struct MapCellPrefabElement : IBufferElementData
 }
 
 /// <summary>
-/// Runtime に存在する Map Cell root。
+/// 生成済みのセル（セルのルート Entity に付く）。
 /// </summary>
 public struct MapCell : IComponentData
 {
     /// <summary>
-    /// この cell を作った MapCellConfig entity。
+    /// このセルを作った設定の Entity。
     /// </summary>
     public Entity ConfigEntity;
 
     /// <summary>
-    /// 無限マップ上の整数 cell 座標。
+    /// 無限マップ上のセルの座標（整数）。
     /// </summary>
     public int2 Coord;
 
     /// <summary>
-    /// 0 = local static mesh 未生成, 1 = 生成済み。
+    /// 1 ならセル内の静的メッシュ（木や岩など）をすべて生成済み。
     /// </summary>
     public byte LocalStaticMeshSpawned;
 
     /// <summary>
-    /// Nav build 開始まで待つ frame 数。これは flag ではない。
+    /// 経路探索用データの作成を始めるまで待つフレーム数（フラグではなく回数）。
     /// </summary>
     public byte NavBuildDelayFrames;
 
     /// <summary>
-    /// 0 = cell 初期 monster 未生成, 1 = 生成済み。
+    /// 1 ならセルの初期モンスターを生成済み。
     /// </summary>
     public byte MonstersSpawned;
 
     /// <summary>
-    /// Cell 内 PCG static mesh の次に展開する buffer index。
+    /// セル内の静的メッシュを、次にどこから生成するか（複数フレームに分けて生成するための位置）。
     /// </summary>
     public int LocalStaticMeshSpawnCursor;
 }
 
 /// <summary>
-/// Map Cell root が所有する runtime entity root。
+/// セルに属するオブジェクト（木・岩・モンスターなど）の一覧。セルを削除するときに一緒に削除する。
 /// </summary>
 [InternalBufferCapacity(64)]
 public struct MapCellOwnedEntityElement : IBufferElementData
 {
     /// <summary>
-    /// Cell unload 時に cell と同じライフタイムで破棄する entity root。
+    /// セルと一緒に削除する Entity。
     /// </summary>
     public Entity Value;
 }
 
 /// <summary>
-/// Cell unload 中の root に付ける状態。
-///
-/// Owned entity を frame budget で少しずつ破棄し、全部消えた後で cell root を破棄する。
+/// 削除中のセルに付ける状態。
+/// セル内のオブジェクトを 1 フレームに少しずつ削除し、すべて消えたらセル本体を削除する。
+/// 一度に大量に削除して処理落ちするのを防ぐため。
 /// </summary>
 public struct MapCellUnloadState : IComponentData
 {
     /// <summary>
-    /// 0 = unload 予約済み。将来、段階的な unload phase が必要になった場合に使う。
+    /// 削除の段階（現在は 0 のみ使用）。
     /// </summary>
     public byte Phase;
 
     /// <summary>
-    /// 次に破棄する MapCellOwnedEntityElement の index。
-    /// 所有 entity の破棄を frame budget で分割し、全体走査を避ける。
+    /// 次に削除するオブジェクトの位置（一覧の何番目か）。
+    /// 続きから削除できるため、毎フレーム一覧の最初から調べ直さずに済む。
     /// </summary>
     public int NextOwnedEntityIndex;
 }
 
 /// <summary>
-/// Player 周辺に Cell prefab を生成する Authoring。
-///
-/// PCG は cell prefab 内にローカル設計として持たせる。この Authoring は cell の active set と
-/// prefab 選択だけを ECS に渡す。
+/// 無限マップ（プレイヤーの周囲にセルを生成し続ける仕組み）の設定を、Inspector から行うための Authoring。
+/// 木や岩の配置（PCG）は各セルの Prefab 側で設定し、この Authoring は「どのセルを生成するか」と
+/// 「どの Prefab を使うか」だけを扱う。
 /// </summary>
 public sealed class MapCellAuthoring : MonoBehaviour
 {
@@ -260,6 +259,10 @@ public sealed class MapCellAuthoring : MonoBehaviour
     [Tooltip("各セルプレハブのルートに使う Y 座標。")]
     private float GroundY = 0f;
 
+    /// <summary>
+    /// Inspector で入力された値を、有効な範囲に収める。
+    /// 現在はセルの範囲を 3×3（半径 1）に固定している。
+    /// </summary>
     private void OnValidate()
     {
         MigrateLegacyCellPrefab();
@@ -281,6 +284,9 @@ public sealed class MapCellAuthoring : MonoBehaviour
         ForwardPreloadDotThreshold = math.clamp(ForwardPreloadDotThreshold, -1f, 1f);
     }
 
+    /// <summary>
+    /// 古い形式（Prefab 1 つだけ）の設定を、新しい形式（複数の候補と重み）に移す。
+    /// </summary>
     private void MigrateLegacyCellPrefab()
     {
         if ((CellPrefabs != null && CellPrefabs.Length > 0) || CellPrefab == null)
@@ -314,6 +320,9 @@ public sealed class MapCellAuthoring : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 実際に使うセルの候補を返す（古い形式の設定しかない場合も考慮する）。
+    /// </summary>
     private MapCellPrefabEntry[] GetEffectiveCellPrefabs()
     {
         if (CellPrefabs != null && CellPrefabs.Length > 0)
@@ -338,6 +347,10 @@ public sealed class MapCellAuthoring : MonoBehaviour
 
     private sealed class Baker : Baker<MapCellAuthoring>
     {
+        /// <summary>
+        /// マップの設定とセルの候補を Entity に変換する。
+        /// ステージの状態は「準備中（Warmup）」から始め、周囲のセルが完成したらゲームを開始する。
+        /// </summary>
         public override void Bake(MapCellAuthoring authoring)
         {
             var entries = authoring.GetEffectiveCellPrefabs();
@@ -396,7 +409,7 @@ public sealed class MapCellAuthoring : MonoBehaviour
 }
 
 /// <summary>
-/// Inspector で編集する Map Cell prefab と抽選重み。
+/// Inspector で編集する、セルの Prefab と選ばれやすさ（重み）。
 /// </summary>
 [System.Serializable]
 public struct MapCellPrefabEntry
@@ -410,12 +423,12 @@ public struct MapCellPrefabEntry
 }
 
 /// <summary>
-/// Map Cell の座標計算。
+/// セルの座標計算と、Prefab の抽選に使う処理。
 /// </summary>
 public static class MapCellUtility
 {
     /// <summary>
-    /// Unity.Mathematics.Random が受け付ける非ゼロ seed に正規化する。
+    /// seed を 0 以外の値にする（Unity.Mathematics.Random は 0 を受け付けないため）。
     /// </summary>
     public static uint NormalizeSeed(int seed)
     {
@@ -428,7 +441,7 @@ public static class MapCellUtility
     }
 
     /// <summary>
-    /// Prefab 抽選 weight を非負値へ正規化する。
+    /// 重みを 0 以上に補正する。
     /// </summary>
     public static float NormalizeWeight(float weight)
     {
@@ -436,7 +449,8 @@ public static class MapCellUtility
     }
 
     /// <summary>
-    /// cell 座標と world seed から、非ゼロの deterministic seed を作る。
+    /// セルの座標とワールドの seed から、セルごとの seed を作る。
+    /// 同じ座標なら常に同じ seed になるため、一度離れてから戻ってきても同じセルが生成される。
     /// </summary>
     public static uint CreateCellSeed(int worldSeed, int2 coord)
     {
@@ -454,7 +468,7 @@ public static class MapCellUtility
     }
 
     /// <summary>
-    /// 0 以上 totalWeight 未満の roll から、正の weight を持つ index を選ぶ。
+    /// 0 以上・重みの合計未満の乱数値から、対応する候補の番号を選ぶ。
     /// </summary>
     public static int SelectWeightedIndex(float[] weights, float roll)
     {
@@ -501,7 +515,7 @@ public static class MapCellUtility
     }
 
     /// <summary>
-    /// world 位置から、中心 pivot の Cell 座標を返す。
+    /// ワールド座標から、その位置を含むセルの座標を返す（セルの中心が原点）。
     /// </summary>
     public static int2 CalculateCellCoord(float3 position, float cellSize)
     {
@@ -514,7 +528,7 @@ public static class MapCellUtility
     }
 
     /// <summary>
-    /// Cell 座標から、prefab root を置く world 位置を返す。
+    /// セルの座標から、セルを置くワールド座標（セルの中心）を返す。
     /// </summary>
     public static float3 CalculateCellWorldPosition(int2 coord, float cellSize, float groundY)
     {
@@ -524,7 +538,7 @@ public static class MapCellUtility
     }
 
     /// <summary>
-    /// Chebyshev 距離で Cell 半径内かどうかを返す。
+    /// セルが指定した半径内にあるかを返す（チェビシェフ距離 = 縦横の差の大きいほう。正方形の範囲になる）。
     /// </summary>
     public static bool IsInsideCellRadius(int2 center, int2 coord, int radius)
     {
@@ -535,7 +549,7 @@ public static class MapCellUtility
     }
 
     /// <summary>
-    /// Cell prefab の rotation / scale を保ち、root 位置だけを Cell 中心へ移す。
+    /// Prefab の回転と大きさを保ったまま、位置だけをセルの中心に合わせた Transform を作る。
     /// </summary>
     public static LocalTransform CreateCellRootTransform(
         int2 coord,
@@ -551,12 +565,12 @@ public static class MapCellUtility
 }
 
 /// <summary>
-/// Map streaming の半径、予算、優先度を計算する。
+/// セルの読み込み・削除（ストリーミング）の範囲、1 フレームの処理数、優先順位の計算。
 /// </summary>
 public static class MapStreamingUtility
 {
     /// <summary>
-    /// Gameplay が依存する半径を非負値へ丸める。
+    /// 「必ず完成している」範囲の半径を 0 以上に補正する。
     /// </summary>
     public static int NormalizeActiveRadius(int activeRadius)
     {
@@ -564,7 +578,7 @@ public static class MapStreamingUtility
     }
 
     /// <summary>
-    /// Preload 半径を Active 半径以上へ丸める。
+    /// 先回り生成の半径を、「必ず完成している」範囲以上に補正する。
     /// </summary>
     public static int NormalizePreloadRadius(int activeRadius, int preloadRadius)
     {
@@ -572,7 +586,7 @@ public static class MapStreamingUtility
     }
 
     /// <summary>
-    /// Unload 半径を Preload 半径以上へ丸める。
+    /// 削除する半径を、先回り生成の範囲以上に補正する（生成した直後に削除されないようにするため）。
     /// </summary>
     public static int NormalizeUnloadRadius(int preloadRadius, int unloadRadius)
     {
@@ -580,7 +594,7 @@ public static class MapStreamingUtility
     }
 
     /// <summary>
-    /// 1 frame の処理予算を 1 以上へ丸める。
+    /// 1 フレームの処理数の上限を 1 以上に補正する。
     /// </summary>
     public static int NormalizeFrameBudget(int budget)
     {
@@ -588,7 +602,7 @@ public static class MapStreamingUtility
     }
 
     /// <summary>
-    /// ActiveRadius が欠けた場合だけ、通常予算を超えて必要 cell 数まで引き上げる。
+    /// 「必ず完成している」範囲のセルが足りないときだけ、1 フレームの生成数の上限を必要な数まで引き上げる。
     /// </summary>
     public static int CalculateEmergencyCreateBudget(int normalBudget, int missingActiveCellCount)
     {
@@ -596,7 +610,7 @@ public static class MapStreamingUtility
     }
 
     /// <summary>
-    /// ActiveRadius 内が不足しているため、cell root 作成予算を引き上げるべきかを返す。
+    /// 「必ず完成している」範囲のセルが足りず、生成数の上限を引き上げるべきかを返す。
     /// </summary>
     public static bool NeedsEmergencyActiveCellCreation(
         int missingActiveCellCount,
@@ -606,7 +620,7 @@ public static class MapStreamingUtility
     }
 
     /// <summary>
-    /// 既存 cell を同じ座標の有効 cell として再利用してよいかを返す。
+    /// 既存のセルを、その座標の有効なセルとして扱ってよいかを返す（削除中のセルは除く）。
     /// </summary>
     public static bool CanReuseExistingCellForCoordLookup(bool hasUnloadState)
     {
@@ -614,7 +628,7 @@ public static class MapStreamingUtility
     }
 
     /// <summary>
-    /// Chebyshev 半径内に含まれる cell 数を返す。
+    /// 半径内に含まれるセルの数を返す（半径 r なら (2r+1)²）。
     /// </summary>
     public static int CalculateCellCountInRadius(int radius)
     {
@@ -625,7 +639,7 @@ public static class MapStreamingUtility
     }
 
     /// <summary>
-    /// Cell unload で今回進められる owned entity destroy cursor を返す。
+    /// 今回のフレームで、セル内のオブジェクトを何番目まで削除できるかを返す。
     /// </summary>
     public static int CalculateNextOwnedEntityDestroyIndex(
         int currentIndex,
@@ -640,7 +654,7 @@ public static class MapStreamingUtility
     }
 
     /// <summary>
-    /// Camera 表示範囲と交差する Cell を、static mesh の優先展開対象として判定する。
+    /// セルがカメラに映る範囲と重なっているかを判定する（重なっていれば、静的メッシュを優先して生成する）。
     /// </summary>
     public static bool ShouldPrioritizeStaticMeshSpawn(
         float2 playerPosition,
@@ -674,7 +688,7 @@ public static class MapStreamingUtility
     }
 
     /// <summary>
-    /// Cell が ActiveRadius 内かを返す。
+    /// セルが「必ず完成している」範囲内にあるかを返す。
     /// </summary>
     public static bool IsActiveCell(int2 center, int2 coord, int activeRadius)
     {
@@ -682,10 +696,11 @@ public static class MapStreamingUtility
     }
 
     /// <summary>
-    /// Cell を load / preload 対象にするかを返す。
+    /// セルを生成する対象にするかを返す。
     /// </summary>
     /// <remarks>
-    /// ActiveRadius 内は方向に関係なく必須。Preload 外周だけ、設定により後方を省略する。
+    /// 「必ず完成している」範囲内は、方向に関係なく必ず生成する。
+    /// その外側（先回り生成の範囲）は、設定に応じて進行方向の後ろ側を省略する。
     /// </remarks>
     public static bool ShouldLoadCell(
         int2 center,
@@ -728,7 +743,7 @@ public static class MapStreamingUtility
     }
 
     /// <summary>
-    /// Cell を unload 対象にするかを返す。
+    /// セルを削除する対象にするかを返す。
     /// </summary>
     public static bool ShouldUnloadCell(int2 center, int2 coord, int unloadRadius)
     {
@@ -736,7 +751,7 @@ public static class MapStreamingUtility
     }
 
     /// <summary>
-    /// 小さい値ほど先に load する。ActiveRadius 内を外周 preload より優先する。
+    /// セルを生成する優先順位を返す（小さいほど先に生成する）。「必ず完成している」範囲内を、先回り生成より優先する。
     /// </summary>
     public static int CalculateLoadPriority(int2 center, int2 coord, int activeRadius)
     {
@@ -752,9 +767,11 @@ public static class MapStreamingUtility
 }
 
 /// <summary>
-/// Player を中心に Map Cell prefab の active set を維持する。
-///
-/// player が別 cell へ移動すると、新しい周辺 cell を instantiate し、範囲外 cell と所有 entity を破棄する。
+/// プレイヤーの周囲のセルを生成し、範囲外のセルを削除して、無限に続くマップを実現する。
+/// ・プレイヤーが別のセルへ移動したら、新しく範囲に入ったセルを生成する
+/// ・範囲外になったセルは、中のオブジェクトごと少しずつ削除する
+/// ・生成・削除の数は 1 フレームあたりの上限で制限し、処理落ち（スパイク）を防ぐ
+/// ・ただし、プレイヤーのすぐ周りのセルが足りないときは、上限を超えてでも優先して生成する
 /// </summary>
 [UpdateBefore(typeof(StaticObstacleCollisionSystem))]
 public partial struct MapCellSystem : ISystem
@@ -790,6 +807,7 @@ public partial struct MapCellSystem : ISystem
             return;
         }
 
+        // セルの生成・削除は EntityCommandBuffer に積み、最後にまとめて反映する。
         var entityCommandBuffer = new EntityCommandBuffer(Allocator.Temp);
         var isWarmupActive = IsWarmupActive(ref state);
 
@@ -827,6 +845,7 @@ public partial struct MapCellSystem : ISystem
                 navConfigLookup,
                 navCellDataLookup);
 
+            // プレイヤーのすぐ周りのセルが足りない場合は、1 フレームの生成数の上限を一時的に引き上げる。
             if (MapStreamingUtility.NeedsEmergencyActiveCellCreation(
                     missingActiveCellCount,
                     hasUnreadyActiveCell))
@@ -836,6 +855,9 @@ public partial struct MapCellSystem : ISystem
                     missingActiveCellCount);
             }
 
+            // 1. 範囲外のセルに「削除中」の印を付ける
+            // 2. 削除中のセルのオブジェクトを、上限の数だけ削除する
+            // 3. 範囲内に足りないセルを、優先順位の高い順に生成する
             BeginUnloadFarCells(
                 ref state,
                 ref entityCommandBuffer,
@@ -859,6 +881,7 @@ public partial struct MapCellSystem : ISystem
                 prefabTransformLookup,
                 unloadStateLookup,
                 centerCoord,
+                // 準備中（Warmup）は方向に関係なく、全方向のセルを生成する。
                 isWarmupActive ? float2.zero : preferredDirection,
                 isWarmupActive ? (byte)1 : config.ValueRO.PreloadBehindCells,
                 createBudget);
@@ -893,6 +916,9 @@ public partial struct MapCellSystem : ISystem
         return false;
     }
 
+    /// <summary>
+    /// セルを先回り生成する方向を返す。移動中なら移動方向、止まっていれば向いている方向。
+    /// </summary>
     private static float2 GetPreferredDirection(
         ComponentLookup<Velocity> velocityLookup,
         ComponentLookup<FacingDirection> facingLookup,
@@ -921,6 +947,9 @@ public partial struct MapCellSystem : ISystem
         return float2.zero;
     }
 
+    /// <summary>
+    /// ステージ開始前の準備中（Warmup）かどうかを返す。
+    /// </summary>
     private bool IsWarmupActive(ref SystemState state)
     {
         foreach (var runtimeState in SystemAPI.Query<RefRO<StageRuntimeState>>())
@@ -946,6 +975,9 @@ public partial struct MapCellSystem : ISystem
         return LocalTransform.Identity;
     }
 
+    /// <summary>
+    /// 削除する範囲に出たセルに「削除中」の印（MapCellUnloadState）を付ける。
+    /// </summary>
     private void BeginUnloadFarCells(
         ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
@@ -973,6 +1005,10 @@ public partial struct MapCellSystem : ISystem
         }
     }
 
+    /// <summary>
+    /// 削除中のセルのオブジェクトを、1 フレームの上限の数だけ削除する。
+    /// セル内のオブジェクトがすべて消えたら、セル本体も削除する。
+    /// </summary>
     private void ProcessUnloadingCells(
         ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
@@ -1040,6 +1076,9 @@ public partial struct MapCellSystem : ISystem
         }
     }
 
+    /// <summary>
+    /// 「必ず完成している」範囲のうち、まだ生成されていないセルの数を数える。
+    /// </summary>
     private int CountMissingActiveCells(
         ref SystemState state,
         Entity configEntity,
@@ -1068,6 +1107,9 @@ public partial struct MapCellSystem : ISystem
         return missingCellCount;
     }
 
+    /// <summary>
+    /// 「必ず完成している」範囲に、まだ準備が終わっていない（未生成・中身が未完成）セルがあるかを返す。
+    /// </summary>
     private bool HasUnreadyActiveCells(
         ref SystemState state,
         Entity configEntity,
@@ -1106,6 +1148,9 @@ public partial struct MapCellSystem : ISystem
         return false;
     }
 
+    /// <summary>
+    /// 指定した座標のセル（削除中を除く）を探す。
+    /// </summary>
     private bool TryGetCellEntity(
         ref SystemState state,
         Entity configEntity,
@@ -1131,6 +1176,9 @@ public partial struct MapCellSystem : ISystem
         return false;
     }
 
+    /// <summary>
+    /// セルの準備が終わっているかを返す（静的メッシュの生成と、経路探索用データの作成が完了している）。
+    /// </summary>
     private bool IsCellReady(
         Entity configEntity,
         Entity cellEntity,
@@ -1161,6 +1209,9 @@ public partial struct MapCellSystem : ISystem
                navCellDataLookup.HasComponent(cellEntity);
     }
 
+    /// <summary>
+    /// 足りないセルを生成する。まず「必ず完成している」範囲を生成し、上限に余裕があれば先回り生成の範囲も生成する。
+    /// </summary>
     private void LoadMissingCells(
         ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
@@ -1218,6 +1269,10 @@ public partial struct MapCellSystem : ISystem
             maxCellCreates: remainingCreates);
     }
 
+    /// <summary>
+    /// 優先順位の高い（値が小さい）セルから順に生成する。
+    /// </summary>
+    /// <returns>生成したセルの数。</returns>
     private int LoadMissingCellsByPriority(
         ref SystemState state,
         ref EntityCommandBuffer entityCommandBuffer,
@@ -1238,6 +1293,8 @@ public partial struct MapCellSystem : ISystem
         var maxPriority = 1000 + preloadRadius;
         var firstPriority = includeActiveCells ? 0 : 1000 + activeRadius + 1;
 
+        // 優先順位は「必ず完成している」範囲が 0〜activeRadius、先回り生成の範囲が 1000 以降。
+        // 間の使われない値は飛ばす。
         for (var priority = firstPriority; priority <= maxPriority; priority++)
         {
             if (priority > activeRadius && priority < 1000)
@@ -1289,6 +1346,9 @@ public partial struct MapCellSystem : ISystem
         return createdCellCount;
     }
 
+    /// <summary>
+    /// 指定した座標に、有効なセル（削除中を除く）がすでにあるかを返す。
+    /// </summary>
     private bool HasAvailableCell(
         ref SystemState state,
         Entity configEntity,
@@ -1311,6 +1371,9 @@ public partial struct MapCellSystem : ISystem
         return false;
     }
 
+    /// <summary>
+    /// ルートの Entity と、それに紐付いた子の Entity をまとめて削除する。
+    /// </summary>
     private void DestroyLinkedEntityGroup(
         ref EntityCommandBuffer entityCommandBuffer,
         BufferLookup<LinkedEntityGroup> linkedEntityLookup,
@@ -1330,6 +1393,9 @@ public partial struct MapCellSystem : ISystem
         }
     }
 
+    /// <summary>
+    /// 指定した座標にセルを 1 つ生成する。
+    /// </summary>
     private static void CreateCell(
         ref EntityCommandBuffer entityCommandBuffer,
         Entity configEntity,
@@ -1367,6 +1433,9 @@ public partial struct MapCellSystem : ISystem
         entityCommandBuffer.AddBuffer<MapCellOwnedEntityElement>(cellEntity);
     }
 
+    /// <summary>
+    /// セルの座標から決まる乱数で、重みに比例してセルの Prefab を選ぶ。
+    /// </summary>
     private static Entity SelectCellPrefab(
         DynamicBuffer<MapCellPrefabElement> cellPrefabs,
         int worldSeed,
@@ -1413,7 +1482,8 @@ public partial struct MapCellSystem : ISystem
 }
 
 /// <summary>
-/// Stage 開始時に、必須 map streaming 範囲が完成するまで gameplay phase への遷移を遅らせる。
+/// ステージ開始時に、プレイヤーの周囲のセルがすべて完成するまで、ゲームの開始を待たせる。
+/// ゲームが始まった時点で、地面・障害物・経路探索用データがそろっているようにするため。
 /// </summary>
 [UpdateAfter(typeof(MapNavBuildSystem))]
 [UpdateBefore(typeof(TimedSurvivalStageSystem))]
@@ -1484,6 +1554,9 @@ public partial struct MapStreamingWarmupSystem : ISystem
         return false;
     }
 
+    /// <summary>
+    /// 生成すべきセルがすべて完成しているかを返す。
+    /// </summary>
     private bool IsStreamingReady(
         ref SystemState state,
         Entity configEntity,
@@ -1534,6 +1607,9 @@ public partial struct MapStreamingWarmupSystem : ISystem
         return true;
     }
 
+    /// <summary>
+    /// 指定した座標のセルが完成しているかを返す。
+    /// </summary>
     private bool TryGetReadyCell(
         ref SystemState state,
         Entity configEntity,

@@ -4,7 +4,7 @@ using Unity.Mathematics;
 using UnityEngine;
 
 /// <summary>
-/// モンスターを見つけるためのタグ、データなし。
+/// モンスターを表すタグ。データは持たず、Query でモンスターを見分けるためだけに使う。
 /// </summary>
 public struct MonsterTag : IComponentData
 {
@@ -12,9 +12,9 @@ public struct MonsterTag : IComponentData
 }
 
 /// <summary>
-/// 通常 monster として recycle 対象にできることを示すタグ。
-///
-/// Boss / Elite / 特殊敵はこのタグを持たせず、死亡 VFX 後に Entity を破棄する。
+/// 倒されたあとに再利用（Recycle）できる、通常のモンスターを表すタグ。
+/// 大量に出現する通常モンスターは Destroy せずに使い回し、生成・破棄の負荷を減らす。
+/// ボスやエリートなどの特殊な敵にはこのタグを付けず、死亡演出のあとに削除する。
 /// </summary>
 public struct MonsterRecycleTag : IComponentData
 {
@@ -22,10 +22,9 @@ public struct MonsterRecycleTag : IComponentData
 }
 
 /// <summary>
-/// GameObject の Monster Prefab を ECS の Monster Entity に変換する Authoring。
-///
-/// Inspector の値は Bake 時に component data へコピーされる。runtime 中の HP、debuff、VFX 状態は
-/// MonsterDestroySystem / DebuffSystem / VFX 系 System が所有する。
+/// モンスターの Prefab（GameObject）を ECS の Entity に変換する Authoring。
+/// Inspector の設定値は Bake 時に Component にコピーされる。
+/// ゲーム中の HP・デバフ・演出の状態は、MonsterDestroySystem・DebuffSystem・VFX 関連の System が更新する。
 /// </summary>
 public class MonsterEntity : MonoBehaviour
 {
@@ -87,6 +86,9 @@ public class MonsterEntity : MonoBehaviour
     [SerializeField]
     private Color HitVfxColor = Color.white;
 
+    /// <summary>
+    /// Inspector で入力された値を、有効な範囲に収める。
+    /// </summary>
     private void OnValidate()
     {
         ExperienceRewardValue = ExperienceMath.NormalizeReward(ExperienceRewardValue);
@@ -99,7 +101,7 @@ public class MonsterEntity : MonoBehaviour
     private class Baker : Unity.Entities.Baker<MonsterEntity>
     {
         /// <summary>
-        /// Monster prefab root に AI、HP、debuff、接地、VFX 用 component を付与する。
+        /// モンスターの Prefab を Entity に変換し、AI・HP・デバフ・接地・演出に必要な Component を追加する。
         /// </summary>
         public override void Bake(MonsterEntity authoring)
         {
@@ -129,7 +131,7 @@ public class MonsterEntity : MonoBehaviour
             {
                 ActiveDebuffs = default
             });
-            // DebuffAggregate は常に持たせる。デバフがない frame でも AI が分岐せず倍率を読める。
+            // デバフの集約値は常に持たせておく。デバフがないときも倍率 1 として読めるので、AI 側で条件分岐が不要になる。
             AddComponent(entity, DebuffMath.CreateNeutralAggregate());
             AddComponent(entity, HealthMath.CreateFullHealth(authoring.MaxHp));
             AddComponent(entity, new ExperienceReward
@@ -190,7 +192,8 @@ public class MonsterEntity : MonoBehaviour
 }
 
 /// <summary>
-/// Monster prefab 配下の renderer Entity に、URP Lit の BaseColor override を焼く Baker。
+/// モンスターの見た目（Renderer）に、色を Entity ごとに変えられる Component（URPMaterialPropertyBaseColor）を追加する Baker。
+/// これにより、マテリアルを複製せずに被弾時・死亡時の色の変化を表現できる。
 /// </summary>
 public sealed class MonsterBaseColorOverrideBaker : Unity.Entities.Baker<Renderer>
 {
@@ -211,14 +214,13 @@ public sealed class MonsterBaseColorOverrideBaker : Unity.Entities.Baker<Rendere
 }
 
 /// <summary>
-/// Monster baking が共有する authoring-time の色変換処理。
-///
-/// Material 参照は runtime component に保存せず、Bake 時点で必要な色だけを float4 として ECS 側へ移す。
+/// モンスターの Bake 時に使う色の変換処理。
+/// マテリアルへの参照は Component に保存せず、Bake の時点で必要な色だけを float4 として取り出す。
 /// </summary>
 public static class MonsterEntityBakingUtility
 {
     /// <summary>
-    /// UnityEngine.Color を ECS/Entities Graphics で扱いやすい linear float4 へ変換する。
+    /// Color を、Entities Graphics で使うリニア色空間の float4 に変換する。
     /// </summary>
     public static float4 ConvertColorToLinearFloat4(Color color)
     {
@@ -232,7 +234,7 @@ public static class MonsterEntityBakingUtility
     }
 
     /// <summary>
-    /// Monster prefab 配下の最初の renderer から復帰用の base color を取得する。
+    /// モンスターの最初の Renderer から元の色を取得する（被弾演出のあと、この色に戻すため）。
     /// </summary>
     public static float4 GetFirstRendererBaseColor(MonsterEntity authoring)
     {
@@ -247,7 +249,7 @@ public static class MonsterEntityBakingUtility
     }
 
     /// <summary>
-    /// Renderer の material から URP/lit 系で使う base color を取得する。
+    /// Renderer のマテリアルから基本色を取得する（URP の _BaseColor、なければ _Color を使う）。
     /// </summary>
     public static float4 GetRendererBaseColor(Renderer renderer)
     {

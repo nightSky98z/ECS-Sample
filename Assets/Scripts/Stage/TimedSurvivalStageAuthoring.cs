@@ -3,7 +3,7 @@ using Unity.Mathematics;
 using UnityEngine;
 
 /// <summary>
-/// SubScene に置く生存ステージ設定。
+/// 「制限時間まで生き残るとクリア」のステージの設定。サブシーンに置く。
 /// </summary>
 public sealed class TimedSurvivalStageAuthoring : MonoBehaviour
 {
@@ -17,6 +17,9 @@ public sealed class TimedSurvivalStageAuthoring : MonoBehaviour
     [Tooltip("初期経過秒数。")]
     private float InitialElapsedSeconds = 0f;
 
+    /// <summary>
+    /// Inspector で入力された値を、有効な範囲に収める。
+    /// </summary>
     private void OnValidate()
     {
         TimeLimitSeconds = math.max(0f, TimeLimitSeconds);
@@ -25,6 +28,9 @@ public sealed class TimedSurvivalStageAuthoring : MonoBehaviour
 
     private sealed class Baker : Baker<TimedSurvivalStageAuthoring>
     {
+        /// <summary>
+        /// 経過時間の状態・進み具合・クリア状態の Component を追加する。
+        /// </summary>
         public override void Bake(TimedSurvivalStageAuthoring authoring)
         {
             var entity = GetEntity(TransformUsageFlags.None);

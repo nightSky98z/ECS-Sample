@@ -4,9 +4,29 @@ using Unity.Mathematics;
 using Unity.Collections;
 using Unity.Transforms;
 
+// =============================================================================
+// スキル実行パイプライン
+//
+//   SkillCooltimeSystem        クールタイムを進め、終わったスキルを「発動可能」に戻す
+//        ↓
+//   PlayerCombatSystem         発動可能なスキルを 1 つ選び、発動予約（IsTriggered）を立てる
+//        ↓
+//   SkillCastElapsedTimeSystem 発動中スキルの経過時間を進める（ダメージ・演出の共通時計）
+//        ↓
+//   SkillLogicSystem           ターゲットを決定し、規定時間にダメージとデバフを適用する
+//        ↓
+//   SkillPresentationSystem    VFX / SFX を再生する（Managed 処理なので別 System に分離）
+//        ↓
+//   SkillCastCompletionSystem  ダメージと演出が終わったスキルをクールタイムへ戻す
+//
+// 各段階を独立した System にすることで、処理順を属性で明示でき、
+// 個別にテスト・デバッグしやすくしている。
+// =============================================================================
+
 /// <summary>
-/// 装備済み attack skill の cooltime を更新する。
-/// Cooldown 中の slot だけを処理し、終了した slot を ready 状態へ戻す。
+/// 装備中の攻撃スキルのクールタイムを進める。
+/// クールタイム中のスロットだけを処理し、時間が経過したら発動可能な状態へ戻す。
+/// バフスキルによるクールタイム短縮もここで反映する。
 /// </summary>
 [UpdateInGroup(typeof(SimulationSystemGroup))]
 public partial struct SkillCooltimeSystem : ISystem
@@ -71,8 +91,9 @@ public partial struct SkillCooltimeSystem : ISystem
 }
 
 /// <summary>
-/// プレイヤーが持つ ready attack skill を 1 つ発動予約する。
-/// 実際の target 決定や damage は SkillLogicSystem に任せ、ここでは IsTriggered だけを立てる。
+/// プレイヤーの発動可能な攻撃スキルを 1 つ選び、発動予約する。
+/// 複数が発動可能な場合はスロット番号が小さいものを優先する。
+/// ターゲット決定やダメージ処理は SkillLogicSystem に任せ、ここでは IsTriggered を立てるだけにしている。
 /// </summary>
 [UpdateInGroup(typeof(SimulationSystemGroup))]
 [UpdateAfter(typeof(SkillCooltimeSystem))]
@@ -144,8 +165,8 @@ public partial struct PlayerCombatSystem : ISystem
 }
 
 /// <summary>
-/// Casting 中の attack skill に対して、共通の発動経過時間を進める。
-/// 経過時間更新を独立させることで、damage / SFX / VFX が同じ時刻を参照できる。
+/// 発動中の攻撃スキルの経過時間を進める。
+/// 経過時間の更新を独立した System にすることで、ダメージ・SFX・VFX が同じ時刻を参照でき、タイミングがずれない。
 /// </summary>
 [UpdateInGroup(typeof(SimulationSystemGroup))]
 [UpdateAfter(typeof(PlayerCombatSystem))]
@@ -182,8 +203,10 @@ public partial struct SkillCastElapsedTimeSystem : ISystem
 }
 
 /// <summary>
-/// 発動予約された attack skill の logic を実行する。
-/// Triggered slot から SkillCastTarget を確定し、DamageDelay 到達後に monster へ直接 HP 変更を適用する。
+/// 発動予約された攻撃スキルの本体処理。
+/// 1. 発動予約があれば、攻撃形状とターゲット位置（SkillCastTarget）を確定する
+/// 2. 経過時間がダメージ発生タイミングに達したら、範囲内のモンスターへダメージとデバフを適用する
+/// 連続攻撃スキルは、規定回数に達するまで 2 を繰り返す。
 /// </summary>
 [UpdateInGroup(typeof(SimulationSystemGroup))]
 [UpdateAfter(typeof(SkillCastElapsedTimeSystem))]
@@ -192,8 +215,10 @@ public partial struct SkillLogicSystem : ISystem
 {
     private EntityQuery equippedBuffSkillQuery;
     private EntityQuery monsterQuery;
+    // 乱数 seed を毎回変えるための通し番号。
     private uint targetSelectionSequence;
 
+    // エディタ / 開発ビルドではデバッグ表示用の Managed 処理を呼ぶため、Burst はリリースビルドのみ有効にする。
 #if !UNITY_EDITOR && !DEVELOPMENT_BUILD
     [BurstCompile]
 #endif
@@ -226,6 +251,7 @@ public partial struct SkillLogicSystem : ISystem
             }
         }
 
+        // ターゲット探索用に、モンスターの位置をフレーム開始時にまとめて配列化しておく。
         var localTransformLookup = SystemAPI.GetComponentLookup<LocalTransform>(true);
         var facingLookup = SystemAPI.GetComponentLookup<FacingDirection>(true);
         var healthLookup = SystemAPI.GetComponentLookup<HealthComponent>(false);
@@ -247,6 +273,7 @@ public partial struct SkillLogicSystem : ISystem
             var skillStateValue = skillState.ValueRO;
             var castTargetValue = castTarget.ValueRO;
 
+            // --- 1. 発動予約があれば、攻撃形状とターゲットを確定する ---
             if (skillStateValue.IsTriggered != 0)
             {
                 TryStartSkillCast(
@@ -273,6 +300,7 @@ public partial struct SkillLogicSystem : ISystem
                 continue;
             }
 
+            // --- 2. ダメージ発生タイミングに達したら、範囲内のモンスターへダメージを適用する ---
             var damageApplyTotalCount = math.max(1, castTargetValue.RepeatCount);
 
             if (SkillMath.ShouldApplySkillDamage(
@@ -318,6 +346,7 @@ public partial struct SkillLogicSystem : ISystem
                         hitVfxLookup);
                 }
 
+                // 連続攻撃スキルは、規定回数に達した時点で「ダメージ適用済み」にする。
                 skillStateValue.DamageApplyCount++;
                 skillStateValue.DamageApplied = skillStateValue.DamageApplyCount >= damageApplyTotalCount
                     ? (byte)1
@@ -342,6 +371,10 @@ public partial struct SkillLogicSystem : ISystem
         buffSkills.Dispose();
     }
 
+    /// <summary>
+    /// 発動予約を消費し、スキルの攻撃形状とターゲットを確定して発動状態へ移す。
+    /// 範囲内にターゲットがいない場合は発動せず、次のフレームで再度予約されるのを待つ。
+    /// </summary>
     private void TryStartSkillCast(
         AttackSkillConfig config,
         AttackSkillAdvancedConfig advancedConfig,
@@ -358,7 +391,7 @@ public partial struct SkillLogicSystem : ISystem
         NativeArray<LocalTransform> monsterTransforms,
         ComponentLookup<HealthComponent> healthLookup)
     {
-        // Trigger は単発イベントとして扱い、ここで消費する。
+        // 発動予約は 1 回限りのイベントとして扱い、ここで消費する。
         skillState.IsTriggered = 0;
 
         if (!localTransformLookup.HasComponent(owner))
@@ -378,6 +411,7 @@ public partial struct SkillLogicSystem : ISystem
             experienceLookup,
             levelStatsLookup);
 
+        // LogicId 0〜7 は AttackSkillLogicKind に対応する。形状ごとの分岐は TryPrepareTargetCenteredCircleAttack 内で行う。
         switch (config.LogicId)
         {
             case 0:
@@ -423,8 +457,8 @@ public partial struct SkillLogicSystem : ISystem
 }
 
 /// <summary>
-/// ダメージと演出が終わった attack skill を cooltime 状態へ遷移させる。
-/// Managed presentation は別 system が担当するため、この system は完了フラグだけを見る。
+/// ダメージと演出の両方が終わった攻撃スキルを、クールタイム状態へ移す。
+/// 演出（Managed 処理）は SkillPresentationSystem が担当するため、この System は完了したかどうかだけを判定する。
 /// </summary>
 [UpdateInGroup(typeof(SimulationSystemGroup))]
 [UpdateAfter(typeof(SkillPresentationSystem))]
@@ -472,8 +506,9 @@ public partial struct SkillCastCompletionSystem : ISystem
 }
 
 /// <summary>
-/// Monster の active debuff を更新し、他 system が読む集約値へ変換する。
-/// ActiveDebuff 配列を毎フレーム畳み込み、Movement / AI が直接読める倍率 component を作る。
+/// モンスターにかかっているデバフの残り時間を進め、効果を 1 つの集約値（DebuffAggregate）にまとめる。
+/// 移動や AI はこの集約値（移動速度倍率など）を読むだけでよく、個々のデバフの種類を知らなくて済む。
+/// 継続ダメージはここで HP に反映し、氷結は FreezeComponent の付与に変換する。
 /// </summary>
 [UpdateInGroup(typeof(SimulationSystemGroup))]
 [UpdateAfter(typeof(SkillLogicSystem))]
@@ -521,11 +556,13 @@ public partial struct DebuffSystem : ISystem
 
                 debuff.RemainingTime -= deltaTime;
 
+                // 期限切れのデバフは次の配列へコピーしないことで削除する。
                 if (debuff.RemainingTime <= 0f)
                 {
                     continue;
                 }
 
+                // 氷結は倍率ではなく「移動処理から外す」効果なので、集約せずに専用 Component へ渡す。
                 if (debuff.Kind == DebuffKind.Freeze)
                 {
                     nextFreezeDuration = math.max(nextFreezeDuration, debuff.RemainingTime);
@@ -575,6 +612,10 @@ public partial struct DebuffSystem : ISystem
         entityCommandBuffer.Dispose();
     }
 
+    /// <summary>
+    /// 氷結を新しく付与するか、すでに氷結中なら残り時間の長いほうで延長する。
+    /// 解除時に元の速度へ戻せるよう、付与する時点の Velocity を保存しておく。
+    /// </summary>
     private static void AddOrRefreshFreeze(
         ref EntityCommandBuffer entityCommandBuffer,
         ComponentLookup<FreezeTag> freezeLookup,
@@ -625,8 +666,8 @@ public partial struct DebuffSystem : ISystem
 }
 
 /// <summary>
-/// Paralyze の回復カーブを移動速度倍率へ反映する。
-/// Freeze と違い Velocity は外さず、DebuffAggregate へ soft lock として掛け合わせる。
+/// 麻痺の効果を移動速度倍率に反映する（時間とともに徐々に回復する）。
+/// 氷結と違って Velocity は外さず、DebuffAggregate の倍率に掛け合わせることで「動きにくい」状態を表す。
 /// </summary>
 [UpdateInGroup(typeof(SimulationSystemGroup))]
 [UpdateAfter(typeof(DebuffSystem))]
@@ -668,8 +709,9 @@ public partial struct ParalyzeSystem : ISystem
 }
 
 /// <summary>
-/// FreezeTag が付いた Entity を移動処理から外す。
-/// Velocity component を削除することで、Movement / AI / PathFollow の query に入らない状態にする。
+/// 氷結した Entity を移動処理から外す。
+/// Velocity Component を取り除くと、移動・AI・経路追従の各 System の Query に一致しなくなるため、
+/// それらの System に「氷結中なら動かない」という分岐を書かずに済む。
 /// </summary>
 [UpdateInGroup(typeof(SimulationSystemGroup))]
 [UpdateAfter(typeof(DebuffSystem))]
@@ -703,7 +745,6 @@ public partial struct FreezeSystem : ISystem
                      .WithEntityAccess())
         {
             entityCommandBuffer.RemoveComponent<Velocity>(entity);
-            // HINT: 氷結専用 VFX / SFX component を追加したら、ここで null チェックして再生開始する。
         }
 
         entityCommandBuffer.Playback(state.EntityManager);
@@ -712,8 +753,8 @@ public partial struct FreezeSystem : ISystem
 }
 
 /// <summary>
-/// 氷結時間が終わった Entity を通常移動へ戻す。
-/// FreezeComponent の timer を進め、期限切れで FreezeTag / FreezeComponent を削除して Velocity を復元する。
+/// 氷結時間が終わった Entity を通常の移動に戻す。
+/// 氷結の経過時間を進め、時間切れになったら氷結用の Component を外し、保存しておいた Velocity を付け直す。
 /// </summary>
 [UpdateInGroup(typeof(SimulationSystemGroup))]
 [UpdateAfter(typeof(FreezeSystem))]
@@ -771,13 +812,18 @@ public partial struct FreezeClearSystem : ISystem
 }
 
 /// <summary>
-/// Skill system が使う配列ベースの実行 helper。
-/// Entity 構造変更を行わず、受け取った NativeArray / ComponentLookup に対して明示的に読み書きする。
+/// スキル System から呼ばれる処理をまとめたクラス（ターゲット選択、攻撃形状の判定、ダメージ適用など）。
+/// Entity の構造変更は行わず、引数で受け取った NativeArray / ComponentLookup だけを読み書きするため、
+/// System の外から単体テストしやすい。
 /// </summary>
 public static class SkillSystemUtility
 {
+    // これより近い 2 点は同じターゲットとみなす（距離の 2 乗）。
     private const float MinDuplicateTargetDistanceSq = 0.0001f;
 
+    /// <summary>
+    /// 指定した所有者が装備しているバフスキルの効果を合算する。
+    /// </summary>
     public static BuffAccumulator CreateBuffAccumulatorForOwner(
         Entity owner,
         NativeArray<BuffSkillConfig> buffSkills,
@@ -798,6 +844,9 @@ public static class SkillSystemUtility
         return accumulator;
     }
 
+    /// <summary>
+    /// 所有者の向きを正規化して返す。向きが取得できない場合は +Z 方向を返す。
+    /// </summary>
     public static float2 GetOwnerFacing(
         Entity owner,
         ComponentLookup<FacingDirection> facingLookup)
@@ -818,6 +867,9 @@ public static class SkillSystemUtility
         return facing * math.rsqrt(facingLengthSq);
     }
 
+    /// <summary>
+    /// XZ 方向ベクトルを正規化する。長さがほぼ 0 の場合は +Z 方向を返す。
+    /// </summary>
     public static float2 NormalizeDirection(float2 direction)
     {
         var lengthSq = math.lengthsq(direction);
@@ -830,6 +882,10 @@ public static class SkillSystemUtility
         return direction * math.rsqrt(lengthSq);
     }
 
+    /// <summary>
+    /// 点が扇形（原点・向き・半径・半角の cos で定義）の内側にあるかを XZ 平面で判定する。
+    /// 角度の比較は内積と cos で行い、三角関数の計算を避けている。
+    /// </summary>
     public static bool IsPointInForwardSector(
         float3 point,
         float3 origin,
@@ -857,6 +913,9 @@ public static class SkillSystemUtility
         return math.dot(normalizedDelta, normalizedDirection) >= math.clamp(angleCos, -1f, 1f);
     }
 
+    /// <summary>
+    /// 点が直線状の攻撃範囲（原点から向きに沿った長さ length・幅 width の長方形）に入っているかを XZ 平面で判定する。
+    /// </summary>
     public static bool IsPointInPiercingLine(
         float3 point,
         float3 origin,
@@ -873,12 +932,16 @@ public static class SkillSystemUtility
             return false;
         }
 
+        // 直線上の最も近い点との距離が、幅の半分以内なら範囲内。
         var halfWidth = math.max(0f, width) * 0.5f;
         var closestPointDelta = delta - normalizedDirection * forwardDistance;
 
         return math.lengthsq(closestPointDelta) <= halfWidth * halfWidth;
     }
 
+    /// <summary>
+    /// スキルの状態を「発動中」に切り替え、発動ごとの進行フラグをリセットする。
+    /// </summary>
     public static void StartCasting(ref AttackSkillState skillState)
     {
         skillState.Timer = 0f;
@@ -893,6 +956,9 @@ public static class SkillSystemUtility
         skillState.StartedThisFrame = 1;
     }
 
+    /// <summary>
+    /// スキルの状態を「クールタイム中」に切り替え、発動中に使ったフラグをすべてリセットする。
+    /// </summary>
     public static void StartCooltime(ref AttackSkillState skillState)
     {
         skillState.Timer = 0f;
@@ -908,6 +974,10 @@ public static class SkillSystemUtility
         skillState.StartedThisFrame = 0;
     }
 
+    /// <summary>
+    /// スキル設定・レベル・バフから攻撃範囲とダメージを計算し、LogicId に応じた形状で SkillCastTarget を組み立てる。
+    /// 1 つもターゲットを作れなかった場合は false を返す。
+    /// </summary>
     public static bool TryPrepareTargetCenteredCircleAttack(
         AttackSkillConfig config,
         AttackSkillAdvancedConfig advancedConfig,
@@ -941,6 +1011,7 @@ public static class SkillSystemUtility
             RepeatInterval = 0f
         };
 
+        // 攻撃形状ごとの準備処理へ振り分ける（番号は AttackSkillLogicKind に対応）。
         switch (config.LogicId)
         {
             case 1:
@@ -1007,6 +1078,7 @@ public static class SkillSystemUtility
                     ref random,
                     ref castTarget);
             case 7:
+                // 同じ場所への連続攻撃：通常の円形攻撃と同じターゲットを使い、回数と間隔だけを追加する。
                 if (!PrepareTargetCenteredCircleAttack(
                         ownerPosition,
                         targetRange,
@@ -1046,6 +1118,10 @@ public static class SkillSystemUtility
         }
     }
 
+    /// <summary>
+    /// 確定済みの攻撃範囲内にいるモンスターへダメージを与える（デバフなし）。
+    /// </summary>
+    /// <returns>ダメージを与えた回数。</returns>
     public static int ApplyTargetCenteredCircleAttack(
         SkillCastTarget castTarget,
         NativeArray<Entity> monsterEntities,
@@ -1067,6 +1143,10 @@ public static class SkillSystemUtility
             hasDebuffs: 0);
     }
 
+    /// <summary>
+    /// 確定済みの攻撃範囲内にいるモンスターへ、ダメージとスキルに設定されたデバフを与える。
+    /// </summary>
+    /// <returns>ダメージを与えた回数。</returns>
     public static int ApplyTargetCenteredCircleAttack(
         SkillCastTarget castTarget,
         NativeArray<Entity> monsterEntities,
@@ -1100,6 +1180,7 @@ public static class SkillSystemUtility
         ref Unity.Mathematics.Random random,
         byte hasDebuffs)
     {
+        // 扇形・直線は専用の判定を使い、それ以外は「円のリスト」として判定する。
         if (castTarget.Shape == AttackSkillCastShape.ForwardSector)
         {
             return ApplyForwardSectorAttack(
@@ -1130,6 +1211,7 @@ public static class SkillSystemUtility
 
         var hitCount = 0;
 
+        // 円ごとに判定するため、円が重なる場所にいるモンスターは重なった数だけヒットする。
         for (var targetIndex = 0; targetIndex < castTarget.Positions.Length; targetIndex++)
         {
             var targetPosition = castTarget.Positions[targetIndex];
@@ -1177,6 +1259,9 @@ public static class SkillSystemUtility
         return hitCount;
     }
 
+    /// <summary>
+    /// 前方の扇形の範囲内にいるモンスターへダメージを与える。
+    /// </summary>
     private static int ApplyForwardSectorAttack(
         SkillCastTarget castTarget,
         NativeArray<Entity> monsterEntities,
@@ -1236,6 +1321,9 @@ public static class SkillSystemUtility
         return hitCount;
     }
 
+    /// <summary>
+    /// 直線上（貫通）の範囲内にいるモンスターへダメージを与える。
+    /// </summary>
     private static int ApplyPiercingLineAttack(
         SkillCastTarget castTarget,
         NativeArray<Entity> monsterEntities,
@@ -1294,6 +1382,9 @@ public static class SkillSystemUtility
         return hitCount;
     }
 
+    /// <summary>
+    /// スキルに設定されたデバフを、それぞれの発生確率で判定してモンスターに付与する。
+    /// </summary>
     private static void ApplyDebuffsToMonster(
         Entity monsterEntity,
         ComponentLookup<DebuffRuntimeState> debuffRuntimeLookup,
@@ -1324,6 +1415,10 @@ public static class SkillSystemUtility
         debuffRuntimeLookup[monsterEntity] = runtime;
     }
 
+    /// <summary>
+    /// デバフを 1 つ付与する。同じ DebuffId がすでにある場合は、StackPolicy に従って
+    /// 「上書き」「強いほうを残す」「別枠で重ねる」のいずれかで処理する。
+    /// </summary>
     private static void ApplyDebuffSpec(
         ref DebuffRuntimeState runtime,
         SkillDebuffSpec spec)
@@ -1335,6 +1430,7 @@ public static class SkillSystemUtility
             return;
         }
 
+        // 同じデバフがすでにかかっている場合の処理。
         if (spec.StackPolicy != DebuffStackPolicy.StackIndependent)
         {
             for (var debuffIndex = 0; debuffIndex < runtime.ActiveDebuffs.Length; debuffIndex++)
@@ -1346,6 +1442,7 @@ public static class SkillSystemUtility
                     continue;
                 }
 
+                // 新しいほうが弱い場合は効果を上書きせず、残り時間だけ延長する。
                 if (spec.StackPolicy == DebuffStackPolicy.ReplaceIfStronger &&
                     !DebuffMath.IsReplacementStronger(currentDebuff, activeDebuff))
                 {
@@ -1359,6 +1456,7 @@ public static class SkillSystemUtility
             }
         }
 
+        // 固定長配列なので、上限に達したら新しいデバフは付与しない。
         if (runtime.ActiveDebuffs.Length >= DebuffConstants.MaxActiveDebuffCount)
         {
             return;
@@ -1367,6 +1465,9 @@ public static class SkillSystemUtility
         runtime.ActiveDebuffs.Add(activeDebuff);
     }
 
+    /// <summary>
+    /// [0] 対象中心の円形範囲攻撃：範囲内のモンスターから複数を選び、それぞれの位置に円形の攻撃範囲を置く。
+    /// </summary>
     private static bool PrepareTargetCenteredCircleAttack(
         float3 ownerPosition,
         float targetRange,
@@ -1409,6 +1510,9 @@ public static class SkillSystemUtility
         return castTarget.Positions.Length > 0;
     }
 
+    /// <summary>
+    /// [1] 前方扇形攻撃：所有者の向きを中心にした扇形を攻撃範囲にする。
+    /// </summary>
     private static bool PrepareForwardSectorAttack(
         AttackSkillAdvancedConfig advancedConfig,
         float3 ownerPosition,
@@ -1432,6 +1536,7 @@ public static class SkillSystemUtility
         castTarget.AttackRange = length;
         castTarget.Damage = damage;
 
+        // 演出とデバッグ表示用に、扇形の中心付近に代表の円を 1 つ登録する（ダメージ判定は扇形で行う）。
         return SkillCastTargetUtility.AddCircle(
             ref castTarget,
             ownerPosition + new float3(direction.x, 0f, direction.y) * (length * 0.5f),
@@ -1439,6 +1544,9 @@ public static class SkillSystemUtility
             damage);
     }
 
+    /// <summary>
+    /// [2] 直線貫通攻撃：所有者の向きに伸びる長方形を攻撃範囲にする。
+    /// </summary>
     private static bool PreparePiercingLineAttack(
         AttackSkillAdvancedConfig advancedConfig,
         float3 ownerPosition,
@@ -1463,6 +1571,7 @@ public static class SkillSystemUtility
         castTarget.AttackRange = lineWidth;
         castTarget.Damage = damage;
 
+        // 演出とデバッグ表示用の代表位置（ダメージ判定は長方形で行う）。
         return SkillCastTargetUtility.AddCircle(
             ref castTarget,
             ownerPosition + new float3(direction.x, 0f, direction.y) * (length * 0.5f),
@@ -1470,6 +1579,9 @@ public static class SkillSystemUtility
             damage);
     }
 
+    /// <summary>
+    /// [3] 自分中心 AoE：所有者の位置に円形の攻撃範囲を 1 つ置く。ターゲットがいなくても発動する。
+    /// </summary>
     private static bool PrepareSelfCenteredAreaAttack(
         float3 ownerPosition,
         float attackRange,
@@ -1490,6 +1602,9 @@ public static class SkillSystemUtility
             damage);
     }
 
+    /// <summary>
+    /// [4] 拡散爆発：まず主ターゲットに円を置き、その周囲のランダムな位置に小さな円（二次爆発）を追加する。
+    /// </summary>
     private static bool PrepareSpreadCircleAttack(
         AttackSkillConfig config,
         AttackSkillAdvancedConfig advancedConfig,
@@ -1544,6 +1659,7 @@ public static class SkillSystemUtility
         var secondaryRadius = math.max(0f, advancedConfig.SecondaryTargetRange);
         var secondaryAttackRange = attackRange * math.max(0f, advancedConfig.SecondaryAttackRangeMultiplier);
 
+        // 二次爆発は主ターゲットに順番に割り振る。
         for (var spreadIndex = 0; spreadIndex < secondaryCount; spreadIndex++)
         {
             var sourcePosition = primaryPositions[spreadIndex % primaryPositions.Length];
@@ -1562,6 +1678,10 @@ public static class SkillSystemUtility
         return castTarget.Positions.Length > 0;
     }
 
+    /// <summary>
+    /// [5] 連鎖攻撃（雷のイメージ）：主ターゲットから近くの別のモンスターへ攻撃を連鎖させる。
+    /// 一度当たった位置は除外リストに入れ、同じ敵に連鎖しないようにする。
+    /// </summary>
     private static bool PrepareChainCircleAttack(
         AttackSkillConfig config,
         AttackSkillAdvancedConfig advancedConfig,
@@ -1650,6 +1770,9 @@ public static class SkillSystemUtility
         return castTarget.Positions.Length > 0;
     }
 
+    /// <summary>
+    /// 連鎖済みの位置を除外リストに追加する。固定長リストのため上限を超えた分は無視する。
+    /// </summary>
     private static void AddExcludedTargetPosition(
         ref FixedList512Bytes<float3> excludedPositions,
         float3 position)
@@ -1662,6 +1785,9 @@ public static class SkillSystemUtility
         excludedPositions.Add(position);
     }
 
+    /// <summary>
+    /// [6] ランダム落下：所有者の周囲のランダムな地点に円形の攻撃範囲を置く。ターゲットがいなくても発動する。
+    /// </summary>
     private static bool PrepareRandomGroundCircleAttack(
         AttackSkillConfig config,
         AttackSkillAdvancedConfig advancedConfig,
@@ -1698,12 +1824,16 @@ public static class SkillSystemUtility
         return castTarget.Positions.Length > 0;
     }
 
+    /// <summary>
+    /// 半径 radius の円の内側から、一様に分布するランダムな XZ オフセットを返す。
+    /// </summary>
     private static float3 CreateRandomCircleOffset(
         float radius,
         ref Unity.Mathematics.Random random)
     {
         var safeRadius = math.max(0f, radius);
         var angle = random.NextFloat(0f, math.PI * 2f);
+        // 距離に sqrt をかけないと、点が円の中心付近に偏ってしまう。
         var distance = math.sqrt(random.NextFloat()) * safeRadius;
 
         return new float3(
@@ -1712,6 +1842,11 @@ public static class SkillSystemUtility
             math.sin(angle) * distance);
     }
 
+    /// <summary>
+    /// ターゲットの決定からダメージ適用までを 1 回の呼び出しでまとめて行う（主にテスト用）。
+    /// 実際のゲーム中は、発動タイミングとダメージのタイミングを分けるため SkillLogicSystem が段階的に処理する。
+    /// </summary>
+    /// <returns>ダメージを与えた回数。</returns>
     public static int ExecuteTargetCenteredCircleAttack(
         AttackSkillConfig config,
         ref AttackSkillState skillState,
@@ -1765,6 +1900,9 @@ public static class SkillSystemUtility
         return hitCount;
     }
 
+    /// <summary>
+    /// プレイヤーのレベルに応じたスキルダメージ倍率を返す。レベル情報がない場合は 1 倍。
+    /// </summary>
     public static float CalculatePlayerLevelDamageRate(
         Entity owner,
         ComponentLookup<ExperienceComponent> experienceLookup,
@@ -1781,6 +1919,9 @@ public static class SkillSystemUtility
             experienceLookup[owner].Level);
     }
 
+    /// <summary>
+    /// モンスターの被弾 VFX を最初から再生し直す。実際の再生は VFX 側の System が行う。
+    /// </summary>
     private static void PlayMonsterHitVfx(
         Entity monsterEntity,
         ComponentLookup<MonsterHitVfxState> hitVfxLookup)
@@ -1797,6 +1938,10 @@ public static class SkillSystemUtility
         hitVfxLookup[monsterEntity] = hitVfx;
     }
 
+    /// <summary>
+    /// ターゲット選択に使う乱数の seed を作る。スキル ID・位置・通し番号からハッシュを作り、
+    /// 発動ごとに異なりつつ再現性のある乱数にする。
+    /// </summary>
     public static uint CreateTargetSelectionSeed(
         int skillId,
         float3 ownerPosition,
@@ -1808,6 +1953,7 @@ public static class SkillSystemUtility
             (uint)math.floor(ownerPosition.z),
             sequence));
 
+        // Unity.Mathematics.Random は seed 0 を受け付けないため 1 に置き換える。
         if (hash == 0u)
         {
             return 1u;
@@ -1816,6 +1962,13 @@ public static class SkillSystemUtility
         return hash;
     }
 
+    /// <summary>
+    /// 範囲内のモンスターから、密度に応じた確率で 1 体を選ぶ。
+    /// 1. 周囲を方向ごとのグループ（バケット）に分け、グループごとに重みを合計する
+    /// 2. 重みに比例してグループを 1 つ選ぶ（敵が多い方向ほど選ばれやすい）
+    /// 3. そのグループの中から、重みに比例して 1 体を選ぶ
+    /// 敵が密集している方向を狙いやすくしつつ、毎回同じ敵ばかり狙わないようにしている。
+    /// </summary>
     public static bool TryFindDensityBiasedRandomMonster(
         float3 ownerPosition,
         float targetRange,
@@ -1832,6 +1985,7 @@ public static class SkillSystemUtility
         var targetRangeSq = targetRange * targetRange;
         var found = false;
 
+        // 1. 方向ごとのグループに重みを集計する。
         for (var monsterIndex = 0; monsterIndex < monsterTransforms.Length; monsterIndex++)
         {
             if (monsterIndex >= monsterHealths.Length ||
@@ -1866,10 +2020,13 @@ public static class SkillSystemUtility
             return false;
         }
 
+        // 2. グループを 1 つ選ぶ。
         var selectedBucket = SelectWeightedBucket(bucketWeights, ref random);
         var totalSelectedWeight = 0f;
         var selectedPosition = float3.zero;
 
+        // 3. 選んだグループの中から 1 体を選ぶ。
+        //    リザーバーサンプリングで、配列を 1 回走査するだけで重みに比例した選択を行う。
         for (var monsterIndex = 0; monsterIndex < monsterTransforms.Length; monsterIndex++)
         {
             if (monsterIndex >= monsterHealths.Length ||
@@ -1906,6 +2063,9 @@ public static class SkillSystemUtility
         return totalSelectedWeight > 0f;
     }
 
+    /// <summary>
+    /// TryFindDensityBiasedRandomMonster の ComponentLookup 版（除外する位置なし）。
+    /// </summary>
     public static bool TryFindDensityBiasedRandomMonster(
         float3 ownerPosition,
         float targetRange,
@@ -1930,6 +2090,10 @@ public static class SkillSystemUtility
             out targetPosition);
     }
 
+    /// <summary>
+    /// 密度に応じた選び方（TryFindDensityBiasedRandomMonster と同じ考え方）で、重複しないターゲットを最大 targetCount 体選ぶ。
+    /// 候補の一覧を 1 回だけ作り、選んだ候補の重みを 0 にしていくことで、毎回全モンスターを走査し直さずに済む。
+    /// </summary>
     public static bool TryFindDensityBiasedRandomMonsterPositions(
         float3 ownerPosition,
         float targetRange,
@@ -1963,6 +2127,7 @@ public static class SkillSystemUtility
         var monsterCount = math.min(monsterEntities.Length, monsterTransforms.Length);
         var remainingWeight = 0f;
 
+        // 範囲内の生きているモンスターを候補として集め、方向グループごとの重みを集計する。
         for (var monsterIndex = 0; monsterIndex < monsterCount; monsterIndex++)
         {
             var monsterEntity = monsterEntities[monsterIndex];
@@ -2004,6 +2169,7 @@ public static class SkillSystemUtility
             return false;
         }
 
+        // 必要な数だけ「グループを選ぶ → その中から 1 体を選ぶ」を繰り返す。
         for (var targetIndex = 0; targetIndex < safeTargetCount; targetIndex++)
         {
             if (remainingWeight <= 0f)
@@ -2042,6 +2208,7 @@ public static class SkillSystemUtility
 
             targetPositions.Add(selectedPosition);
 
+            // 選んだ候補（と同じ位置にいる候補）の重みを 0 にして、次回以降に選ばれないようにする。
             for (var candidateIndex = 0; candidateIndex < candidatePositions.Length; candidateIndex++)
             {
                 var candidateWeight = candidateWeights[candidateIndex];
@@ -2067,6 +2234,9 @@ public static class SkillSystemUtility
         return targetPositions.Length > 0;
     }
 
+    /// <summary>
+    /// 密度に応じた選び方で 1 体を選ぶ。excludedPositions にある位置のモンスターは候補から除外する（連鎖攻撃用）。
+    /// </summary>
     public static bool TryFindDensityBiasedRandomMonster(
         float3 ownerPosition,
         float targetRange,
@@ -2174,6 +2344,9 @@ public static class SkillSystemUtility
         return totalSelectedWeight > 0f;
     }
 
+    /// <summary>
+    /// 位置が除外リストのいずれかとほぼ同じ場所にあるかを判定する。
+    /// </summary>
     private static bool IsExcludedTargetPosition(
         float3 position,
         FixedList512Bytes<float3> excludedPositions)
@@ -2189,6 +2362,9 @@ public static class SkillSystemUtility
         return false;
     }
 
+    /// <summary>
+    /// 重みに比例した確率でグループ（バケット）を 1 つ選ぶ。重みがすべて 0 の場合は 0 番を返す。
+    /// </summary>
     private static int SelectWeightedBucket(
         NativeArray<float> bucketWeights,
         ref Unity.Mathematics.Random random)

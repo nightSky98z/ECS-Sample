@@ -5,10 +5,12 @@ using UnityEditor;
 using UnityEngine;
 
 /// <summary>
-/// PCGStaticMeshAuthoring の Scene View preview。
+/// PCGStaticMeshAuthoring のエディタ用プレビュー。
+/// Bake と同じ計算で配置を求めて Scene ビューに描画するので、ゲームを実行しなくても配置を確認・調整できる。
 /// </summary>
 public partial class PCGStaticMeshAuthoring
 {
+    // プレビューで描画する数の上限（エディタが重くならないようにするため）。
     private const int MaxPreviewInstances = 512;
 
     [SerializeField]
@@ -18,7 +20,7 @@ public partial class PCGStaticMeshAuthoring
     private readonly List<MeshFilter> PreviewMeshFilters = new List<MeshFilter>();
 
     /// <summary>
-    /// 選択時だけ、Bake と同じ seed / area / scale から予定配置を描画する。
+    /// オブジェクトを選択しているときだけ、Bake と同じ設定（seed・範囲・大きさ）で計算した配置を描画する。
     /// </summary>
     private void OnDrawGizmosSelected()
     {
@@ -73,6 +75,9 @@ public partial class PCGStaticMeshAuthoring
         }
     }
 
+    /// <summary>
+    /// プレビューに使う有効な候補（Prefab があり、重みが正のもの）を集める。
+    /// </summary>
     private List<PCGStaticMeshPrefabCandidate> CollectPreviewPrefabs()
     {
         var entries = GetEffectiveStaticMeshEntries();
@@ -98,7 +103,7 @@ public partial class PCGStaticMeshAuthoring
     }
 
     /// <summary>
-    /// Prefab の MeshFilter を使って、Bake 予定位置に prefab 形状を描画する。
+    /// Prefab に含まれるメッシュを、計算した配置の位置に描画する。
     /// </summary>
     private void DrawPrefabPreview(GameObject prefab, PCGStaticMeshPlacement placement)
     {
@@ -135,7 +140,7 @@ public partial class PCGStaticMeshAuthoring
     }
 
     /// <summary>
-    /// Prefab の material で、Gizmo 用の追加色を乗せずに mesh だけを描画する。
+    /// Prefab のマテリアルをそのまま使ってメッシュを描画する（実際の見た目に近い状態で確認できる）。
     /// </summary>
     private static void DrawMaterialMesh(Mesh mesh, Material[] materials, Matrix4x4 matrix)
     {
@@ -166,7 +171,8 @@ public partial class PCGStaticMeshAuthoring
 }
 
 /// <summary>
-/// PCGStaticMeshAuthoring の Inspector 表示を制御する Editor。
+/// PCGStaticMeshAuthoring の Inspector 表示をカスタマイズするエディタ。
+/// 設定の表示順を整え、LOD 付きの Prefab に関する注意の表示と、ワンクリックでの修正ボタンを追加している。
 /// </summary>
 [CustomEditor(typeof(PCGStaticMeshAuthoring))]
 public sealed class PCGStaticMeshAuthoringEditor : Editor
@@ -195,7 +201,7 @@ public sealed class PCGStaticMeshAuthoringEditor : Editor
     }
 
     /// <summary>
-    /// 配置生成に必要な値を明示的な順序で表示する。
+    /// 配置に必要な設定を、分かりやすい順番で表示する。
     /// </summary>
     public override void OnInspectorGUI()
     {
@@ -217,6 +223,10 @@ public sealed class PCGStaticMeshAuthoringEditor : Editor
         serializedObject.ApplyModifiedProperties();
     }
 
+    /// <summary>
+    /// LODGroup 付きの Prefab に「Static」が設定されている場合に警告を表示し、解除するボタンを出す。
+    /// （実行時に生成する Entity では、Static のままだと LOD が効かなくなるため）
+    /// </summary>
     private void DrawLodStaticPrefabWarning()
     {
         var staticLodPrefabs = CollectStaticLodPrefabs();
@@ -241,6 +251,9 @@ public sealed class PCGStaticMeshAuthoringEditor : Editor
         }
     }
 
+    /// <summary>
+    /// 候補の中から、LODGroup があり Static が設定されている Prefab を集める。
+    /// </summary>
     private List<GameObject> CollectStaticLodPrefabs()
     {
         var prefabs = new List<GameObject>();
@@ -296,6 +309,9 @@ public sealed class PCGStaticMeshAuthoringEditor : Editor
         }
     }
 
+    /// <summary>
+    /// 古い形式（Prefab の配列のみ）の設定を、新しい形式（候補と重み）に移す。
+    /// </summary>
     private void MigrateLegacySerializedPrefabs()
     {
         if (staticMeshEntriesProperty.arraySize > 0 ||
@@ -318,6 +334,9 @@ public sealed class PCGStaticMeshAuthoringEditor : Editor
         }
     }
 
+    /// <summary>
+    /// Inspector で入力された値を、有効な範囲に収める。
+    /// </summary>
     private void ClampSerializedValues()
     {
         if (instanceCountProperty.intValue < 0)

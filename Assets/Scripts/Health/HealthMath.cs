@@ -1,19 +1,18 @@
 using Unity.Mathematics;
 
 /// <summary>
-/// HP を直接更新する System / Baker が使う計算。
-///
-/// HealthComponent は runtime 状態なので、ここでは値の正規化と差分適用だけを扱う。
-/// ダメージ発生元や死亡遷移は呼び出し側 System の責務。
+/// HP の計算処理。HP を更新する System や Baker から呼ばれる。
+/// ここでは「値を正しい範囲に収める」「増減を適用する」ことだけを扱い、
+/// ダメージの発生や死亡時の処理は呼び出し側の System が担当する。
 /// </summary>
 public static class HealthMath
 {
     /// <summary>
-    /// current / max を安全な範囲に収めた HealthComponent を作る。
+    /// 現在 HP と最大 HP を正しい範囲に収めた HealthComponent を作る。
     /// </summary>
-    /// <param name="currentHp">現在 HP。0..maxHp に丸める。</param>
+    /// <param name="currentHp">現在 HP。0〜maxHp に収める。</param>
     /// <param name="maxHp">最大 HP。1 未満は 1 として扱う。</param>
-    /// <returns>正規化済み HP。</returns>
+    /// <returns>範囲内に収めた HP。</returns>
     public static HealthComponent CreateHealth(int currentHp, int maxHp)
     {
         var safeMaxHp = NormalizeMaxHp(maxHp);
@@ -26,25 +25,26 @@ public static class HealthMath
     }
 
     /// <summary>
-    /// 最大 HP と同じ現在 HP を持つ HealthComponent を作る。
+    /// HP が満タンの HealthComponent を作る。
     /// </summary>
     /// <param name="maxHp">最大 HP。1 未満は 1 として扱う。</param>
-    /// <returns>全回復状態の HP。</returns>
+    /// <returns>満タンの HP。</returns>
     public static HealthComponent CreateFullHealth(int maxHp)
     {
         return CreateHealth(maxHp, maxHp);
     }
 
     /// <summary>
-    /// HP 差分を適用し、0..MaxHp に丸めた結果を返す。
+    /// HP を増減させ、0〜MaxHp に収めた結果を返す。
     /// </summary>
-    /// <param name="health">更新前の HP。</param>
-    /// <param name="delta">加算差分。負値はダメージ、正値は回復。</param>
-    /// <returns>差分適用後の HP。</returns>
+    /// <param name="health">変更前の HP。</param>
+    /// <param name="delta">増減量。負の値はダメージ、正の値は回復。</param>
+    /// <returns>変更後の HP。</returns>
     public static HealthComponent ApplyHealthDelta(HealthComponent health, int delta)
     {
         var safeMaxHp = NormalizeMaxHp(health.MaxHp);
         var safeCurrentHp = math.clamp(health.CurrentHp, 0, safeMaxHp);
+        // 大きなダメージや回復でも int があふれないよう、long で計算する。
         var nextHp = (long)safeCurrentHp + delta;
 
         return new HealthComponent
@@ -55,7 +55,7 @@ public static class HealthMath
     }
 
     /// <summary>
-    /// HP が死亡状態かどうかを返す。
+    /// 死亡しているかどうかを返す。
     /// </summary>
     /// <param name="health">判定する HP。</param>
     /// <returns>CurrentHp が 0 以下なら true。</returns>

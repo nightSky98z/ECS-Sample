@@ -5,7 +5,7 @@ using UnityEngine;
 using UnityEngine.Serialization;
 
 /// <summary>
-/// プレイヤーを見つけるためのタグ。データは持たず、query の分類だけに使う。
+/// プレイヤーを表すタグ。データは持たず、Query でプレイヤーを見分けるためだけに使う。
 /// </summary>
 public struct PlayerTag : IComponentData
 {
@@ -13,21 +13,20 @@ public struct PlayerTag : IComponentData
 }
 
 /// <summary>
-/// 1フレームごとに入力 System が書き込む移動入力。
+/// プレイヤーの移動入力。PlayerInputSystem が毎フレーム書き込む。
 /// </summary>
 public struct PlayerInput : IComponentData
 {
     /// <summary>
-    /// X が world X、Y が world Z 方向の入力。長さは最大 1。
+    /// X がワールドの X 方向、Y がワールドの Z 方向の入力。長さは最大 1。
     /// </summary>
     public float2 Move;
 }
 
 /// <summary>
-/// GameObject の Player Prefab を ECS の Player Entity に変換する Authoring。
-///
-/// この MonoBehaviour は runtime gameplay logic を持たない。Inspector の値を Baker で component data に変換し、
-/// 以後の更新は PlayerInputSystem / MovementSystem / Skill 系 System が行う。
+/// プレイヤーの Prefab（GameObject）を ECS の Entity に変換する Authoring。
+/// この MonoBehaviour はゲーム中の処理を持たず、Inspector の設定値を Baker で Component に変換するだけ。
+/// ゲーム中の更新は PlayerInputSystem・MovementSystem・スキル関連の System が行う。
 /// </summary>
 public class PlayerEntity : MonoBehaviour
 {
@@ -122,6 +121,9 @@ public class PlayerEntity : MonoBehaviour
     [InspectorName("デフォルト攻撃ロジック")]
     private AttackSkillLogicKind DefaultAttackSkillLogic = AttackSkillLogicKind.TargetCenteredCircle;
 
+    /// <summary>
+    /// Inspector で入力された値を、有効な範囲に収める。
+    /// </summary>
     private void OnValidate()
     {
         DefaultAttackSkillBaseDamage = math.max(0f, DefaultAttackSkillBaseDamage);
@@ -152,7 +154,8 @@ public class PlayerEntity : MonoBehaviour
     private class Baker : Unity.Entities.Baker<PlayerEntity>
     {
         /// <summary>
-        /// Player prefab root を gameplay entity に変換し、初期スキルスロットも同じ owner に紐付けて作る。
+        /// プレイヤーの Prefab を Entity に変換し、移動・HP・経験値などの Component を追加する。
+        /// あわせて、スキルスロット用の Entity も作ってプレイヤーに紐付ける。
         /// </summary>
         public override void Bake(PlayerEntity authoring)
         {
@@ -227,7 +230,7 @@ public class PlayerEntity : MonoBehaviour
                 AddComponent(entity, groundSensor);
             }
 
-            // HP bar は任意パーツなので、Prefab に anchor がある場合だけ component を持たせる。
+            // HP バーは必須ではないため、Prefab に目印がある場合だけ Component を追加する。
             if (HealthBarAnchorAuthoringUtility.TryCreateHealthBarAnchor(authoring.transform, out var healthBarAnchor))
             {
                 AddComponent(entity, healthBarAnchor);
@@ -236,6 +239,10 @@ public class PlayerEntity : MonoBehaviour
             BakeSkillSlots(entity, authoring);
         }
 
+        /// <summary>
+        /// 攻撃スキル用・バフスキル用のスロット Entity をそれぞれ作り、プレイヤーに紐付ける。
+        /// スキルをプレイヤーとは別の Entity にすることで、スキルの付け替えをプレイヤー本体を変更せずに行える。
+        /// </summary>
         private void BakeSkillSlots(Entity owner, PlayerEntity authoring)
         {
             for (var slotIndex = 0; slotIndex < PlayerCombatConstants.MaxAttackSkillCount; slotIndex++)
@@ -257,8 +264,8 @@ public class PlayerEntity : MonoBehaviour
                     continue;
                 }
 
-                // 現在は DebugScene 用に 0 番攻撃スロットへ初期スキルを装備する。
-                // 将来のカード選択では、空スロットに同じ component 群を書き込む。
+                // 0 番の攻撃スロットにだけ初期スキルを装備する。
+                // スキルを追加するときは、空いているスロットに同じ Component を追加すればよい。
                 AddComponent<EquippedSkillTag>(slot);
                 var defaultSkill = authoring.CreateDefaultAttackSkill();
 
@@ -302,6 +309,10 @@ public class PlayerEntity : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 初期スキルのデータを作る。スキル定義の Prefab が設定されていればそれを使い、
+    /// なければ Inspector の「Default Attack Skill ～」の値から作る。
+    /// </summary>
     private AttackSkillDefinition CreateDefaultAttackSkill()
     {
         if (DefaultAttackSkillEntity != null)
@@ -329,7 +340,7 @@ public class PlayerEntity : MonoBehaviour
     }
 
     /// <summary>
-    /// Inspector に割り当てられた SkillEntity が攻撃スキル定義として使えるかを確認する。
+    /// Inspector で設定されたスキル定義の Prefab が、攻撃スキルの定義として使えるかを確認する。
     /// </summary>
     private bool TryGetDefaultAttackSkillAuthoring(out IAttackSkillDefinitionAuthoring skillAuthoring)
     {

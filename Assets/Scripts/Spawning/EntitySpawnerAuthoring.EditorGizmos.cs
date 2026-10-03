@@ -5,7 +5,7 @@ using Unity.Mathematics;
 using UnityEngine;
 
 /// <summary>
-/// EntitySpawnerAuthoring の Scene View preview。
+/// EntitySpawnerAuthoring のエディタ用プレビュー。生成される位置に Prefab の形を Scene ビューで表示する。
 /// </summary>
 public partial class EntitySpawnerAuthoring
 {
@@ -20,7 +20,7 @@ public partial class EntitySpawnerAuthoring
     private readonly List<MeshFilter> PreviewMeshFilters = new List<MeshFilter>();
 
     /// <summary>
-    /// Spawner 選択時だけ、Bake と同じ seed / count / area から予定配置を描画する。
+    /// オブジェクトを選択しているときだけ、Bake と同じ設定（seed・数・範囲）で計算した生成位置を描画する。
     /// </summary>
     private void OnDrawGizmosSelected()
     {
@@ -66,7 +66,7 @@ public partial class EntitySpawnerAuthoring
     }
 
     /// <summary>
-    /// SpawnEntityPrefab の MeshFilter を使って、予定位置に prefab 形状を描画する。
+    /// 生成する Prefab に含まれるメッシュを、生成予定の位置に描画する。
     /// </summary>
     private void DrawPrefabPreview(Vector3 position, Quaternion rotation, Vector3 scale)
     {
@@ -106,7 +106,7 @@ public partial class EntitySpawnerAuthoring
     }
 
     /// <summary>
-    /// Gizmo の repaint と同じ寿命で prefab mesh を表示する。
+    /// メッシュを Gizmo として描画する（Scene ビューが再描画されるたびに描き直される）。
     /// </summary>
     private static void DrawSolidMesh(Mesh mesh, Matrix4x4 matrix)
     {
@@ -126,7 +126,7 @@ public partial class EntitySpawnerAuthoring
     }
 
     /// <summary>
-    /// Prefab または mesh がない場合の最小 preview を描画する。
+    /// Prefab やメッシュがない場合に、位置だけが分かる簡単な目印を描画する。
     /// </summary>
     private static void DrawFallbackPreview(Vector3 position)
     {
@@ -136,7 +136,7 @@ public partial class EntitySpawnerAuthoring
 }
 
 /// <summary>
-/// Spawner の Inspector 表示を制御する Editor。
+/// EntitySpawnerAuthoring の Inspector 表示をカスタマイズするエディタ。
 /// </summary>
 [CustomEditor(typeof(EntitySpawnerAuthoring))]
 public sealed class EntitySpawnerAuthoringEditor : Editor
@@ -159,7 +159,7 @@ public sealed class EntitySpawnerAuthoringEditor : Editor
     }
 
     /// <summary>
-    /// RandomizePosition が無効なとき、複数生成と random 専用設定を編集不可にする。
+    /// 位置をランダムにしない設定のときは、生成数とランダム用の設定を編集できないようにする（誤設定を防ぐため）。
     /// </summary>
     public override void OnInspectorGUI()
     {
@@ -186,7 +186,7 @@ public sealed class EntitySpawnerAuthoringEditor : Editor
     }
 
     /// <summary>
-    /// Scene 配置 mode では 0 か 1 だけを保持し、古い複数値が Bake に残らないようにする。
+    /// 位置をランダムにしない設定のときは、生成数を 0 か 1 に制限する（以前の設定値が残って Bake されないようにするため）。
     /// </summary>
     private void ClampScenePositionSpawnCount()
     {

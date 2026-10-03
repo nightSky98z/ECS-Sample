@@ -4,60 +4,68 @@ using Unity.Collections;
 using Unity.Mathematics;
 using UnityEngine;
 
+// =============================================================================
+// スキルとデバフのデータ定義（Component・定数・計算処理）
+//
+// ・スキルは「設定（Config）」と「実行状態（State）」の Component に分け、
+//   設定は読み取り専用、状態だけを毎フレーム書き換える。
+// ・可変長のデータは FixedList に入れ、Component の付け外し（構造変更）が起きないようにしている。
+// =============================================================================
+
 /// <summary>
-/// プレイヤーの戦闘関連で共有する固定容量と固定係数。
-/// 配列長や FixedList 容量と一致させる値なので、実行中に変更しない。
+/// プレイヤーの戦闘で共有する上限値と係数。
+/// 配列の長さや FixedList の容量と一致させる必要があるため、実行中に変更しない。
 /// </summary>
 public static class PlayerCombatConstants
 {
     /// <summary>
-    /// プレイヤーが同時に装備できる攻撃 skill slot 数。
+    /// プレイヤーが同時に装備できる攻撃スキルの数。
     /// </summary>
     public const int MaxAttackSkillCount = 5;
 
     /// <summary>
-    /// プレイヤーが同時に装備できる buff skill slot 数。
+    /// プレイヤーが同時に装備できるバフスキルの数。
     /// </summary>
     public const int MaxBuffSkillCount = 5;
 
     /// <summary>
-    /// 攻撃 slot と buff slot を合わせた総 slot 数。
+    /// 攻撃スキルとバフスキルを合わせたスロットの総数。
     /// </summary>
     public const int MaxSkillCount = MaxAttackSkillCount + MaxBuffSkillCount;
 
     /// <summary>
-    /// Skill level の下限。Inspector / debug 操作 / runtime 計算で共通に使う。
+    /// スキルレベルの下限。Inspector・デバッグ操作・実行時の計算で共通に使う。
     /// </summary>
     public const int MinSkillLevel = 1;
 
     /// <summary>
-    /// Skill level の上限。現在のゲーム仕様上の最大値。
+    /// スキルレベルの上限。
     /// </summary>
     public const int MaxSkillLevel = 6;
 
     /// <summary>
-    /// Skill level 1 上昇ごとの skill 固有ダメージ倍率加算値。
+    /// スキルレベルが 1 上がるごとに加算されるダメージ倍率。
     /// </summary>
     public const float DamageRatePerLevel = 0.1f;
 
     /// <summary>
-    /// 攻撃対象を方向密度で選ぶときの方位分割数。
+    /// ターゲットを「敵が多い方向」から選ぶときに、周囲 360° を何方向に分けるか。
     /// </summary>
     public const int TargetSelectionDirectionBucketCount = 16;
 
     /// <summary>
-    /// 対象選択で近い敵を少し優先する重み。
+    /// ターゲット選択で、近い敵を少し優先するための重み。
     /// </summary>
     public const float TargetSelectionDistanceWeight = 0.6f;
 
     /// <summary>
-    /// 1 回の skill 発動で保持できる攻撃円数の上限。
+    /// 1 回のスキル発動で置ける攻撃範囲（円）の最大数。
     /// </summary>
     public const int MaxAttackCircleCount = 32;
 }
 
 /// <summary>
-/// buff skill が倍率をかける攻撃値。
+/// バフスキルが倍率をかけるステータスの種類。
 /// </summary>
 public enum BuffTargetStatus
 {
@@ -69,7 +77,7 @@ public enum BuffTargetStatus
 }
 
 /// <summary>
-/// レベルから攻撃円数を計算するときの丸め方。
+/// レベルから攻撃範囲（円）の数を計算するときの、小数の丸め方。
 /// </summary>
 public enum SkillCountRoundMode
 {
@@ -79,7 +87,7 @@ public enum SkillCountRoundMode
 }
 
 /// <summary>
-/// Inspector で選ぶ attack skill の攻撃形状。
+/// 攻撃スキルの攻撃パターン。Inspector で選択し、数値は AttackSkillConfig.LogicId として保存される。
 /// </summary>
 public enum AttackSkillLogicKind
 {
@@ -109,90 +117,103 @@ public enum AttackSkillLogicKind
 }
 
 /// <summary>
-/// 発動時に確定した damage 判定形状。
+/// 発動時に確定するダメージ判定の形。
 /// </summary>
 public enum AttackSkillCastShape
 {
+    /// <summary>円形の範囲を複数並べる（多くの攻撃パターンがこれを使う）。</summary>
     CircleList,
+    /// <summary>前方の扇形。</summary>
     ForwardSector,
+    /// <summary>前方へ伸びる直線（長方形）。</summary>
     PiercingLine
 }
 
 /// <summary>
-/// Debuff system が処理する効果カテゴリ。
+/// デバフの種類。
 /// </summary>
 public enum DebuffKind
 {
+    /// <summary>移動速度低下。</summary>
     MoveSpeedDown,
+    /// <summary>継続ダメージ（一定間隔で HP が減る）。</summary>
     DamageOverTime,
+    /// <summary>攻撃力低下。</summary>
     AttackDown,
+    /// <summary>防御力低下。</summary>
     DefenseDown,
+    /// <summary>回避率低下。</summary>
     EvasionDown,
+    /// <summary>氷結（完全に停止する）。</summary>
     Freeze,
+    /// <summary>麻痺（一時停止したあと、徐々に動けるようになる）。</summary>
     Paralyze
 }
 
 /// <summary>
-/// 同じ DebuffId が既にある場合の更新規則。
+/// 同じ DebuffId のデバフがすでにかかっているときに、どう処理するか。
 /// </summary>
 public enum DebuffStackPolicy
 {
+    /// <summary>新しいデバフで上書きする（残り時間もリセット）。</summary>
     RefreshDuration,
+    /// <summary>新しいほうが強いときだけ上書きし、弱いときは残り時間だけ延長する。</summary>
     ReplaceIfStronger,
+    /// <summary>別のデバフとして重ねがけする。</summary>
     StackIndependent
 }
 
 /// <summary>
-/// SkillEntity が持つ命中時 debuff 定義。
-/// 発生率や継続時間は authoring / bake 時に正規化され、命中時に DebuffRuntimeState へコピーされる。
+/// スキルが命中したときに付与するデバフの定義（スキル Entity に Buffer として持たせる）。
+/// 値は Bake 時に正規化され、命中時に対象の DebuffRuntimeState へコピーされる。
 /// </summary>
 public struct SkillDebuffSpec : IBufferElementData
 {
     /// <summary>
-    /// 同一 debuff を識別する ID。StackPolicy の比較単位。
+    /// デバフを識別する ID。StackPolicy で「同じデバフか」を判定するときに使う。
     /// </summary>
     public int DebuffId;
 
     /// <summary>
-    /// Runtime が実行する debuff 処理カテゴリ。
+    /// デバフの種類。
     /// </summary>
     public DebuffKind Kind;
 
     /// <summary>
-    /// 同じ DebuffId が既に対象にある場合の更新規則。
+    /// 同じデバフがすでにかかっている場合の処理方法。
     /// </summary>
     public DebuffStackPolicy StackPolicy;
 
     /// <summary>
-    /// 命中時に適用される確率。0 は発生なし、1 は確定。
+    /// 命中時に発生する確率（0 = 発生しない、1 = 必ず発生）。
     /// </summary>
     public float Chance;
 
     /// <summary>
-    /// 適用後の継続時間秒。0 以下は無効扱い。
+    /// 継続時間（秒）。0 以下なら付与しない。
     /// </summary>
     public float Duration;
 
     /// <summary>
-    /// 主効果値。
-    /// 倍率系は 1 を基準、DoT は tick ダメージ、Paralyze は速度 0 を維持する時間割合。
+    /// 主な効果量。種類によって意味が変わる。
+    /// 倍率系は 1 が基準、継続ダメージは 1 回あたりのダメージ、麻痺は「完全に止まっている時間」の割合。
     /// </summary>
     public float Value0;
 
     /// <summary>
-    /// 追加効果値。
-    /// Paralyze では回復カーブ指数。1 は普通、2 以上は遅く始まり後半で戻る。
+    /// 補助の効果量。
+    /// 麻痺では回復カーブの指数（1 = 一定ペースで回復、2 以上 = 最初はゆっくり、後半で一気に回復）。
     /// </summary>
     public float Value1;
 
     /// <summary>
-    /// DoT の tick 間隔秒。DoT 以外では現在未使用。
+    /// 継続ダメージの発生間隔（秒）。継続ダメージ以外では使わない。
     /// </summary>
     public float TickInterval;
 }
 
 /// <summary>
-/// Inspector で編集する命中時 debuff 定義。
+/// Inspector で編集する、命中時のデバフ定義。Bake 時に SkillDebuffSpec に変換される。
 /// </summary>
 [Serializable]
 public struct SkillDebuffAuthoring
@@ -223,69 +244,73 @@ public struct SkillDebuffAuthoring
 }
 
 /// <summary>
-/// Monster が保持する実行中 debuff。
-/// FixedList 内に値として保存されるため、Entity 参照や managed 参照を持たない。
+/// モンスターにかかっている 1 つのデバフ。
+/// FixedList の中に値として保存するため、Entity や Managed オブジェクトへの参照は持たない。
 /// </summary>
 public struct ActiveDebuff
 {
     /// <summary>
-    /// 同一 debuff の置換判定に使う ID。
+    /// デバフを識別する ID。
     /// </summary>
     public int DebuffId;
 
     /// <summary>
-    /// この debuff の処理カテゴリ。
+    /// デバフの種類。
     /// </summary>
     public DebuffKind Kind;
 
     /// <summary>
-    /// 再適用時の更新規則。
+    /// もう一度付与されたときの処理方法。
     /// </summary>
     public DebuffStackPolicy StackPolicy;
 
     /// <summary>
-    /// 残り継続時間秒。0 以下になった tick で削除される。
+    /// 残り時間（秒）。0 以下になったフレームで削除される。
     /// </summary>
     public float RemainingTime;
 
     /// <summary>
-    /// 適用開始時の継続時間秒。Paralyze など、経過率で効果量を計算する debuff が使う。
+    /// 付与したときの継続時間（秒）。麻痺のように、経過の割合で効果が変わるデバフが使う。
     /// </summary>
     public float Duration;
 
     /// <summary>
-    /// 主効果値。Kind により意味が変わる。
+    /// 主な効果量。種類によって意味が変わる（SkillDebuffSpec.Value0 を参照）。
     /// </summary>
     public float Value0;
 
     /// <summary>
-    /// 追加効果値。将来の複合効果用。
+    /// 補助の効果量（SkillDebuffSpec.Value1 を参照）。
     /// </summary>
     public float Value1;
 
     /// <summary>
-    /// DoT tick 間隔秒。
+    /// 継続ダメージの発生間隔（秒）。
     /// </summary>
     public float TickInterval;
 
     /// <summary>
-    /// 次の DoT tick までに蓄積された経過時間。
+    /// 前回の継続ダメージから経過した時間（秒）。
     /// </summary>
     public float TickTimer;
 }
 
 /// <summary>
-/// Monster に固定で持たせる debuff runtime 状態。
-/// Debuff の付与/消滅で component を追加削除せず、固定容量リストだけを書き換える。
+/// モンスターにかかっているデバフの一覧。
+/// デバフの付与・解除のたびに Component を付け外しすると構造変更のコストがかかるため、
+/// この Component は常に持たせておき、中の固定長リストだけを書き換える。
 /// </summary>
 public struct DebuffRuntimeState : IComponentData
 {
+    /// <summary>
+    /// 現在有効なデバフ（最大 DebuffConstants.MaxActiveDebuffCount 個）。
+    /// </summary>
     public FixedList512Bytes<ActiveDebuff> ActiveDebuffs;
 }
 
 /// <summary>
-/// 各 system が読む集約済み debuff 値。
-/// Movement / AI などは ActiveDebuff の配列を直接見ず、この集約値だけを見る。
+/// すべてのデバフの効果をまとめた倍率。
+/// 移動や AI の System はデバフの一覧を直接見ず、この倍率だけを読む。
 /// </summary>
 public struct DebuffAggregate : IComponentData
 {
@@ -311,8 +336,8 @@ public struct DebuffAggregate : IComponentData
 }
 
 /// <summary>
-/// 氷結中の Entity に付く分類タグ。
-/// Velocity を外して Movement / AI / PathFollow の query から外すため、移動停止を倍率では表現しない。
+/// 氷結中の Entity に付くタグ。
+/// 氷結は「移動速度 0 倍」ではなく、Velocity を外して移動系 System の Query から外すことで表す。
 /// </summary>
 public struct FreezeTag : IComponentData
 {
@@ -320,8 +345,7 @@ public struct FreezeTag : IComponentData
 }
 
 /// <summary>
-/// フリーズ状態で処理すべき runtime データ。
-/// VFX / SFX の再生済み状態も、将来ここへ追加する。
+/// 氷結の残り時間と、解除時に戻す速度。
 /// </summary>
 public struct FreezeComponent : IComponentData
 {
@@ -336,28 +360,33 @@ public struct FreezeComponent : IComponentData
     public float Timer;
 
     /// <summary>
-    /// 氷結解除時に戻す Velocity。解除直後の AI System が次 frame の水平速度を上書きする。
+    /// 氷結を解除するときに付け直す Velocity。水平方向の速度は、解除後のフレームで AI が上書きする。
     /// </summary>
     public Velocity RestoreVelocity;
 }
 
 /// <summary>
-/// Debuff 処理で共有する固定値。
+/// デバフ処理で共有する定数。
 /// </summary>
 public static class DebuffConstants
 {
+    /// <summary>1 体に同時にかけられるデバフの最大数（FixedList512Bytes に収まる数）。</summary>
     public const int MaxActiveDebuffCount = 12;
+
+    /// <summary>継続ダメージの発生間隔が未設定のときに使う値（秒）。</summary>
     public const float DefaultDotTickInterval = 1f;
+
+    /// <summary>麻痺の回復カーブ指数が未設定のときに使う値。</summary>
     public const float DefaultParalyzeRecoveryPower = 2f;
 }
 
 /// <summary>
-/// Debuff system から独立して検査できる計算。
+/// デバフの計算処理。System から切り離した static 関数なので、単体テストしやすい。
 /// </summary>
 public static class DebuffMath
 {
     /// <summary>
-    /// Authoring / buffer 由来の debuff 定義を runtime が扱える範囲に丸める。
+    /// デバフ定義の値を、実行時に扱える範囲（確率 0〜1、時間 0 以上など）に収める。
     /// </summary>
     public static SkillDebuffSpec NormalizeSpec(SkillDebuffSpec spec)
     {
@@ -379,7 +408,7 @@ public static class DebuffMath
     }
 
     /// <summary>
-    /// SkillDebuffSpec から対象に保存する ActiveDebuff を作る。
+    /// デバフ定義から、対象に付与する ActiveDebuff を作る。
     /// </summary>
     public static ActiveDebuff CreateActiveDebuff(SkillDebuffSpec spec)
     {
@@ -400,7 +429,7 @@ public static class DebuffMath
     }
 
     /// <summary>
-    /// Debuff がない状態の集約値を作る。
+    /// デバフがかかっていない状態（すべての倍率が 1）の集約値を作る。
     /// </summary>
     public static DebuffAggregate CreateNeutralAggregate()
     {
@@ -414,7 +443,7 @@ public static class DebuffMath
     }
 
     /// <summary>
-    /// 1 つの active debuff を集約値へ反映する。
+    /// デバフ 1 つ分の効果を集約値に掛け合わせる。同じ種類のデバフが複数あれば、倍率は掛け算で重なる。
     /// </summary>
     public static DebuffAggregate ApplyToAggregate(DebuffAggregate aggregate, ActiveDebuff debuff)
     {
@@ -442,18 +471,19 @@ public static class DebuffMath
     }
 
     /// <summary>
-    /// DoT の経過時間を進め、今回発生する HP ダメージ量を返す。
+    /// 継続ダメージの経過時間を進め、このフレームで発生するダメージ量を返す。
     /// </summary>
-    /// <param name="debuff">DoT として評価する debuff。</param>
-    /// <param name="deltaTime">今回進める秒数。</param>
-    /// <param name="nextTickTimer">次フレームへ持ち越す tick 蓄積時間。</param>
-    /// <returns>今回発生した HP ダメージ量。</returns>
+    /// <param name="debuff">対象のデバフ。</param>
+    /// <param name="deltaTime">経過時間（秒）。</param>
+    /// <param name="nextTickTimer">次のフレームへ持ち越す経過時間。</param>
+    /// <returns>このフレームで発生したダメージ量。</returns>
     public static int CalculateDotDamage(ActiveDebuff debuff, float deltaTime, out float nextTickTimer)
     {
         var tickInterval = debuff.TickInterval > 0f
             ? debuff.TickInterval
             : DebuffConstants.DefaultDotTickInterval;
         var tickTimer = debuff.TickTimer + math.max(0f, deltaTime);
+        // FPS が低く 1 フレームで複数回分の時間が経過した場合も、取りこぼさずにまとめて発生させる。
         var tickCount = (int)math.floor(tickTimer / tickInterval);
 
         nextTickTimer = tickTimer - tickCount * tickInterval;
@@ -467,7 +497,7 @@ public static class DebuffMath
     }
 
     /// <summary>
-    /// Runtime 全体から Paralyze による移動速度倍率を計算する。
+    /// かかっている麻痺の中で、最も効果が強い（速度倍率が小さい）ものの倍率を返す。
     /// </summary>
     public static float CalculateParalyzeMoveSpeedMultiplier(DebuffRuntimeState runtime)
     {
@@ -489,11 +519,11 @@ public static class DebuffMath
     }
 
     /// <summary>
-    /// Paralyze の経過率から移動速度倍率を計算する。
+    /// 麻痺の経過の割合から、移動速度倍率（0〜1）を計算する。
     /// </summary>
     /// <remarks>
-    /// Value0 は速度 0 の維持割合、Value1 は回復カーブ指数。
-    /// 速度は 0 から始まり、hold 後に smoothstep^power で 1 へ戻る。
+    /// 前半（Value0 の割合）は完全に停止し、その後 smoothstep を Value1 乗したカーブで 1 倍まで回復する。
+    /// 「しびれて止まる → だんだん動けるようになる」動きを表現している。
     /// </remarks>
     public static float CalculateParalyzeMoveSpeedMultiplier(ActiveDebuff debuff)
     {
@@ -529,10 +559,11 @@ public static class DebuffMath
     }
 
     /// <summary>
-    /// ReplaceIfStronger 用に、置換候補が現在の debuff より強いか判定する。
+    /// ReplaceIfStronger のときに、新しいデバフが今のデバフより強いかを判定する。
     /// </summary>
     /// <remarks>
-    /// 倍率低下系は値が小さいほど強く、DoT は秒間ダメージが大きいほど強い。
+    /// 倍率を下げる系は値が小さいほど強い、継続ダメージは秒間ダメージが大きいほど強い、
+    /// というように、種類ごとに「強さ」の基準を変えている。
     /// </remarks>
     public static bool IsReplacementStronger(ActiveDebuff currentDebuff, ActiveDebuff replacementDebuff)
     {
@@ -562,6 +593,9 @@ public static class DebuffMath
         }
     }
 
+    /// <summary>
+    /// 継続ダメージの秒間ダメージ。
+    /// </summary>
     private static float CalculateDotDamagePerSecond(ActiveDebuff debuff)
     {
         var tickInterval = debuff.TickInterval > 0f
@@ -571,6 +605,9 @@ public static class DebuffMath
         return math.max(0f, debuff.Value0) / tickInterval;
     }
 
+    /// <summary>
+    /// 麻痺の強さを比較するためのスコア（残り時間・停止の割合・回復の遅さを掛け合わせる）。
+    /// </summary>
     private static float CalculateParalyzeStrengthScore(ActiveDebuff debuff)
     {
         var durationScore = math.max(0f, debuff.RemainingTime);
@@ -581,7 +618,8 @@ public static class DebuffMath
     }
 
     /// <summary>
-    /// 確率値を 0..1 に丸めた上で、今回 debuff を適用するか判定する。
+    /// 発生確率（0〜1）に従って、今回デバフを付与するかを判定する。
+    /// 0 と 1 のときは乱数を使わずに結果を返す。
     /// </summary>
     public static bool ShouldApply(float chance, ref Unity.Mathematics.Random random)
     {
@@ -602,321 +640,323 @@ public static class DebuffMath
 }
 
 /// <summary>
-/// Attack skill の定義値。SkillEntity prefab と slot の両方で共有する固定寄りデータ。
+/// 攻撃スキルの基本設定。スキル Entity の Prefab とスロットの両方で共有する、変更されないデータ。
 /// </summary>
 public struct AttackSkillConfig : IComponentData
 {
     /// <summary>
-    /// Skill 定義 ID。UI / debug / random seed の識別に使う。
+    /// スキルの ID。UI・デバッグ表示・乱数 seed の識別に使う。
     /// </summary>
     public int Id;
 
     /// <summary>
-    /// Buff、skill level、player level を掛ける前の基礎ダメージ。
+    /// 基礎ダメージ（バフ・スキルレベル・プレイヤーレベルの倍率をかける前の値）。
     /// </summary>
     public float BaseDamage;
 
     /// <summary>
-    /// Buff 適用前の基礎 cooldown 秒。
+    /// 基礎クールタイム（秒）。バフで短縮される前の値。
     /// </summary>
     public float Cooltime;
 
     /// <summary>
-    /// 対象候補を探す XZ 半径。
+    /// ターゲットを探す半径（XZ 平面）。
     /// </summary>
     public float BaseTargetRange;
 
     /// <summary>
-    /// 1 つの攻撃円が命中判定に使う XZ 半径。
+    /// 攻撃範囲 1 つ分（円）の半径（XZ 平面）。
     /// </summary>
     public float BaseAttackRange;
 
     /// <summary>
-    /// Skill level 1 の攻撃円数。
+    /// スキルレベル 1 のときの攻撃範囲（円）の数。
     /// </summary>
     public int BaseTargetCount;
 
     /// <summary>
-    /// Level 上昇で攻撃円数を増やす係数。
+    /// レベルが上がるごとに攻撃範囲の数を増やす係数。
     /// </summary>
     public float TargetCountLevelWeight;
 
     /// <summary>
-    /// 1 回の発動で出せる攻撃円数の上限。
+    /// 1 回の発動で置ける攻撃範囲の数の上限。
     /// </summary>
     public int MaxTargetCount;
 
     /// <summary>
-    /// Level から増加分を計算するときの丸め方。
+    /// レベルから攻撃範囲の数を計算するときの丸め方。
     /// </summary>
     public SkillCountRoundMode TargetCountRoundMode;
 
     /// <summary>
-    /// SkillLogicSystem が選ぶ攻撃ロジック ID。
+    /// 攻撃パターンの番号（AttackSkillLogicKind の値）。
     /// </summary>
     public int LogicId;
 }
 
 /// <summary>
-/// 2 段階攻撃、ランダム落下、繰り返し攻撃で使う追加定義値。
+/// 特定の攻撃パターンだけが使う追加設定（扇形の角度、二段階攻撃、ランダム落下、連続攻撃など）。
+/// 括弧内の番号は、その設定を使う攻撃パターン（LogicId）。
 /// </summary>
 public struct AttackSkillAdvancedConfig : IComponentData
 {
     /// <summary>
-    /// LogicId 1 の前方扇形角度。
+    /// [1] 前方扇形の角度（度）。
     /// </summary>
     public float ForwardSectorAngleDegrees;
 
     /// <summary>
-    /// LogicId 2 の直線貫通幅。0 の場合は BaseAttackRange を使う。
+    /// [2] 直線攻撃の幅。0 の場合は BaseAttackRange を使う。
     /// </summary>
     public float LineWidth;
 
     /// <summary>
-    /// LogicId 4/5 の 2 段階目基礎数。
+    /// [4][5] 二段階目（拡散・連鎖）の基本数。
     /// </summary>
     public int SecondaryBaseCount;
 
     /// <summary>
-    /// LogicId 4/5 の 2 段階目数を level で増やす係数。
+    /// [4][5] レベルが上がるごとに二段階目の数を増やす係数。
     /// </summary>
     public float SecondaryCountLevelWeight;
 
     /// <summary>
-    /// LogicId 4/5 の 2 段階目数の上限。
+    /// [4][5] 二段階目の数の上限。
     /// </summary>
     public int SecondaryMaxCount;
 
     /// <summary>
-    /// LogicId 4/5 の 2 段階目探索半径。
+    /// [4][5] 二段階目を探す（または散らばらせる）半径。
     /// </summary>
     public float SecondaryTargetRange;
 
     /// <summary>
-    /// LogicId 4/5 の 2 段階目攻撃半径倍率。
+    /// [4][5] 二段階目の攻撃範囲の大きさ（一段階目に対する倍率）。
     /// </summary>
     public float SecondaryAttackRangeMultiplier;
 
     /// <summary>
-    /// LogicId 6 のランダム落下座標を選ぶ半径。0 の場合は BaseTargetRange を使う。
+    /// [6] ランダム落下の位置を選ぶ半径。0 の場合は BaseTargetRange を使う。
     /// </summary>
     public float RandomGroundRadius;
 
     /// <summary>
-    /// LogicId 7 の繰り返し基礎回数。
+    /// [7] 連続攻撃の基本回数。
     /// </summary>
     public int RepeatBaseCount;
 
     /// <summary>
-    /// LogicId 7 の繰り返し回数を level で増やす係数。
+    /// [7] レベルが上がるごとに連続攻撃の回数を増やす係数。
     /// </summary>
     public float RepeatCountLevelWeight;
 
     /// <summary>
-    /// LogicId 7 の繰り返し回数上限。
+    /// [7] 連続攻撃の回数の上限。
     /// </summary>
     public int RepeatMaxCount;
 
     /// <summary>
-    /// LogicId 7 の同じ場所へ再攻撃する間隔秒。
+    /// [7] 連続攻撃の間隔（秒）。
     /// </summary>
     public float RepeatInterval;
 }
 
 /// <summary>
-/// Attack skill の全ロジックで共通利用する発動タイミングと演出用数値。
-/// LogicId ごとの攻撃形状とは独立し、発動開始からの経過秒で判定する。
+/// ダメージ・SFX・VFX を出すタイミングと、演出の設定。すべての攻撃パターンで共通。
+/// タイミングは「発動開始からの経過時間（秒）」で指定する。
 /// </summary>
 public struct AttackSkillTimingConfig : IComponentData
 {
     /// <summary>
-    /// 発動開始から damage 判定を出すまでの秒数。
+    /// 発動開始からダメージを与えるまでの時間（秒）。
     /// </summary>
     public float DamageDelay;
 
     /// <summary>
-    /// 発動開始から SFX を再生するまでの秒数。
+    /// 発動開始から SFX を再生するまでの時間（秒）。
     /// </summary>
     public float SfxDelay;
 
     /// <summary>
-    /// SFX の再生音量。1 が基準。
+    /// SFX の音量（1 が基準）。
     /// </summary>
     public float SfxVolume;
 
     /// <summary>
-    /// 発動開始から VFX を生成するまでの秒数。
+    /// 発動開始から VFX を生成するまでの時間（秒）。
     /// </summary>
     public float VfxDelay;
 
     /// <summary>
-    /// 生成した VFX GameObject を破棄するまでの秒数。
+    /// 生成した VFX を削除するまでの時間（秒）。
     /// </summary>
     public float VfxDuration;
 
     /// <summary>
-    /// VFX prefab の元見た目半径。Prefab ごとのスケール差を吸収する。
+    /// VFX Prefab の元の見た目の半径。Prefab ごとの大きさの違いを吸収するために使う。
     /// </summary>
     public float VfxPrefabRadius;
 
     /// <summary>
-    /// VFX を表示したい半径。0 の場合は攻撃範囲へ合わせる。
+    /// VFX を表示したい半径。0 の場合は攻撃範囲に合わせる。
     /// </summary>
     public float VfxDisplayRadius;
 
     /// <summary>
-    /// 0 = SFX なし, 1 = SFX 再生完了を待ってから cooldown に入る。
+    /// 1 なら SFX あり（再生が終わるまでクールタイムに入らない）。
     /// </summary>
     public byte HasSfx;
 
     /// <summary>
-    /// 0 = VFX なし, 1 = VFX 生成完了を待ってから cooldown に入る。
+    /// 1 なら VFX あり（生成が終わるまでクールタイムに入らない）。
     /// </summary>
     public byte HasVfx;
 }
 
 /// <summary>
-/// Attack skill slot の実行状態。
-/// Slot は stage 中に増減しないため、状態だけを上書きして archetype 変更を避ける。
+/// 攻撃スキルの実行状態（クールタイム中・発動中など）。
+/// スロットはステージ中に増減しないため、Component を付け外しせずに値だけを書き換えて状態を表す。
+/// フラグは byte（0 / 1）で持ち、Burst で扱いやすくしている。
 /// </summary>
 public struct AttackSkillState : IComponentData
 {
     /// <summary>
-    /// Cooldown 用 timer。IsCooltime が 1 のときだけ進む。
+    /// クールタイムの経過時間（秒）。IsCooltime が 1 のときだけ進む。
     /// </summary>
     public float Timer;
 
     /// <summary>
-    /// Casting 中の発動経過秒。Damage / SFX / VFX delay はこの値を見る。
+    /// 発動開始からの経過時間（秒）。ダメージ・SFX・VFX のタイミングはこの値で判定する。
     /// </summary>
     public float CastElapsedTime;
 
     /// <summary>
-    /// Skill level。Debug 操作やレベルアップで変化する。
+    /// スキルレベル。レベルアップやデバッグ操作で変わる。
     /// </summary>
     public int Level;
 
     /// <summary>
-    /// 今回の casting 中に damage 判定を適用した回数。
+    /// 今回の発動で、すでにダメージを与えた回数。
     /// </summary>
     public int DamageApplyCount;
 
     /// <summary>
-    /// 今回の casting で予定している damage 判定回数。
+    /// 今回の発動でダメージを与える予定の回数（連続攻撃なら 2 以上）。
     /// </summary>
     public int DamageApplyTotalCount;
 
     /// <summary>
-    /// 0 = ready, 1 = cooltime running。
+    /// 1 ならクールタイム中、0 なら発動可能。
     /// </summary>
     public byte IsCooltime;
 
     /// <summary>
-    /// 0 = idle, 1 = SkillLogicSystem が今回処理する。
+    /// 1 なら発動予約済み（このフレームで SkillLogicSystem が処理する）。
     /// </summary>
     public byte IsTriggered;
 
     /// <summary>
-    /// 0 = idle, 1 = 発動中。ダメージ / SFX / VFX delay はこの状態で進む。
+    /// 1 なら発動中。ダメージ・SFX・VFX の待ち時間はこの状態のときに進む。
     /// </summary>
     public byte IsCasting;
 
     /// <summary>
-    /// 0 = 未適用, 1 = 今回の発動で damage 判定済み。
+    /// 1 なら今回の発動で予定していたダメージをすべて与えた。
     /// </summary>
     public byte DamageApplied;
 
     /// <summary>
-    /// 0 = 未再生, 1 = 今回の発動で SFX 再生済み。
+    /// 1 なら今回の発動で SFX を再生済み。
     /// </summary>
     public byte SfxPlayed;
 
     /// <summary>
-    /// 0 = 未生成, 1 = 今回の発動で VFX 生成済み。
+    /// 1 なら今回の発動で VFX を生成済み。
     /// </summary>
     public byte VfxSpawned;
 
     /// <summary>
-    /// 0 = 通常, 1 = 発動開始フレーム。delay 0 の presentation を次フレームで拾うために使う。
+    /// 1 なら発動を開始したフレーム。待ち時間 0 の演出を次のフレームで確実に拾うために使う。
     /// </summary>
     public byte StartedThisFrame;
 }
 
 /// <summary>
-/// 発動開始時に確定した攻撃判定の入力。
-/// Logic system が書き、damage / presentation / debug 表示が読む。
+/// 発動開始時に確定した攻撃範囲とダメージ。
+/// SkillLogicSystem が書き込み、ダメージ処理・演出・デバッグ表示が読む。
 /// </summary>
 public struct SkillCastTarget : IComponentData
 {
     /// <summary>
-    /// CircleList 表示/判定に使う中心座標配列。
+    /// 攻撃範囲（円）の中心座標の一覧。
     /// </summary>
     public FixedList512Bytes<float3> Positions;
 
     /// <summary>
-    /// Positions と同じ index の攻撃半径。
+    /// 各円の半径（Positions と同じ順番）。
     /// </summary>
     public FixedList512Bytes<float> AttackRanges;
 
     /// <summary>
-    /// Positions と同じ index の HP ダメージ。
+    /// 各円のダメージ（Positions と同じ順番）。
     /// </summary>
     public FixedList512Bytes<int> Damages;
 
     /// <summary>
-    /// 今回の発動が使う判定形状。
+    /// 今回の発動で使う判定の形。
     /// </summary>
     public AttackSkillCastShape Shape;
 
     /// <summary>
-    /// 扇形/直線など、単一形状の起点。
+    /// 扇形・直線の起点。
     /// </summary>
     public float3 Origin;
 
     /// <summary>
-    /// 扇形/直線の XZ 正規化方向。
+    /// 扇形・直線の向き（XZ 平面、正規化済み）。
     /// </summary>
     public float2 Direction;
 
     /// <summary>
-    /// 扇形/直線の長さ。
+    /// 扇形の半径、または直線の長さ。
     /// </summary>
     public float ShapeLength;
 
     /// <summary>
-    /// 直線幅や形状固有の補助幅。
+    /// 直線の幅など、形ごとの補助的な幅。
     /// </summary>
     public float ShapeWidth;
 
     /// <summary>
-    /// 扇形判定で使う半角 cos 値。
+    /// 扇形の半角の cos。判定時に角度を計算せず、内積と比較するだけで済むようにしている。
     /// </summary>
     public float ShapeAngleCos;
 
     /// <summary>
-    /// 旧経路や fallback で使う既定攻撃半径。
+    /// 円ごとの半径が取得できないときに使う、既定の攻撃半径。
     /// </summary>
     public float AttackRange;
 
     /// <summary>
-    /// 旧経路や fallback で使う既定 HP ダメージ。
+    /// 円ごとのダメージが取得できないときに使う、既定のダメージ。
     /// </summary>
     public int Damage;
 
     /// <summary>
-    /// 同じ発動中に damage 判定を繰り返す回数。
+    /// 1 回の発動でダメージを与える回数（連続攻撃用）。
     /// </summary>
     public int RepeatCount;
 
     /// <summary>
-    /// RepeatCount が 2 以上のとき、2 回目以降の判定間隔秒。
+    /// RepeatCount が 2 以上のときの、2 回目以降の間隔（秒）。
     /// </summary>
     public float RepeatInterval;
 }
 
 /// <summary>
-/// Attack skill の SFX / VFX prefab 参照。
-/// Managed object を含むため、presentation 専用 system だけが読む。
+/// 攻撃スキルの SFX / VFX の参照。
+/// Managed オブジェクト（AudioClip・GameObject）への参照を含むため、演出用の System だけが読む。
 /// </summary>
 public struct AttackSkillPresentation : IComponentData
 {
@@ -932,94 +972,98 @@ public struct AttackSkillPresentation : IComponentData
 }
 
 /// <summary>
-/// Attack skill に倍率をかける passive buff skill の定義値。
+/// 攻撃スキルに倍率をかける、常時発動型のバフスキルの設定。
 /// </summary>
 public struct BuffSkillConfig : IComponentData
 {
     /// <summary>
-    /// Buff 定義 ID。
+    /// バフスキルの ID。
     /// </summary>
     public int Id;
 
     /// <summary>
-    /// Buff の処理 ID。現在は Target と Multiplier を直接使う。
+    /// バフの処理番号。現在は使っておらず、Target と Multiplier だけで効果が決まる。
     /// </summary>
     public int LogicId;
 
     /// <summary>
-    /// 対象 status に掛ける倍率。
+    /// 対象のステータスにかける倍率。
     /// </summary>
     public float Multiplier;
 
     /// <summary>
-    /// この buff が補正する status。
+    /// 倍率をかけるステータス。
     /// </summary>
     public BuffTargetStatus Target;
 }
 
 /// <summary>
-/// Buff skill の実行状態。今は level のみだが、将来 stack / duration をここへ足す。
+/// バフスキルの実行状態。
 /// </summary>
 public struct BuffSkillState : IComponentData
 {
+    /// <summary>
+    /// バフスキルのレベル。
+    /// </summary>
     public int Level;
 }
 
 /// <summary>
-/// Authoring / default factory が返す attack skill の初期データ。
-/// Baker はこの値を slot entity または SkillEntity prefab へ分解して追加する。
+/// 攻撃スキル 1 つ分の初期データをまとめたもの。
+/// Baker はこれを Config・State などの Component に分けて Entity に追加する。
 /// </summary>
 public struct AttackSkillDefinition
 {
     /// <summary>
-    /// 攻撃の基礎定義。
+    /// 基本設定。
     /// </summary>
     public AttackSkillConfig Config;
 
     /// <summary>
-    /// LogicId ごとの追加定義。
+    /// 攻撃パターンごとの追加設定。
     /// </summary>
     public AttackSkillAdvancedConfig AdvancedConfig;
 
     /// <summary>
-    /// 発動中の damage / SFX / VFX タイミング。
+    /// ダメージ・SFX・VFX のタイミング。
     /// </summary>
     public AttackSkillTimingConfig Timing;
 
     /// <summary>
-    /// Slot に配置するときの初期実行状態。
+    /// 実行状態の初期値。
     /// </summary>
     public AttackSkillState State;
 
     /// <summary>
-    /// Slot に配置するときの初期 target 状態。
+    /// 攻撃範囲の初期値（空）。
     /// </summary>
     public SkillCastTarget CastTarget;
 
     /// <summary>
-    /// 命中時に適用する debuff 定義配列。
+    /// 命中時に付与するデバフの一覧。
     /// </summary>
     public FixedList512Bytes<SkillDebuffSpec> DebuffSpecs;
 }
 
 /// <summary>
-/// Skill entity がどの owner の何番 slot かを表す。
+/// スキル Entity が「誰の」「何番目の」スロットに装備されているかを表す。
+/// スキルを所有者とは別の Entity にすることで、スキルの追加・入れ替えを所有者側の変更なしで行える。
 /// </summary>
 public struct SkillSlotComponent : IComponentData
 {
     /// <summary>
-    /// この slot を所有する Player / Boss などの entity。
+    /// スキルの所有者（プレイヤーなど）。
     /// </summary>
     public Entity Owner;
 
     /// <summary>
-    /// Owner 内の slot index。攻撃 skill は小さい index から優先発動する。
+    /// スロット番号。攻撃スキルは番号が小さいものから優先して発動する。
     /// </summary>
     public int SlotIndex;
 }
 
 /// <summary>
-/// 装備済み skill slot だけを走査するためのタグ。
+/// 装備中のスキルだけを Query で取り出すためのタグ。
 /// </summary>
 public struct EquippedSkillTag : IComponentData
 {
@@ -1027,7 +1071,7 @@ public struct EquippedSkillTag : IComponentData
 }
 
 /// <summary>
-/// Attack skill slot のタグ。
+/// 攻撃スキルのスロットを表すタグ。
 /// </summary>
 public struct AttackSkillSlotTag : IComponentData
 {
@@ -1035,7 +1079,7 @@ public struct AttackSkillSlotTag : IComponentData
 }
 
 /// <summary>
-/// Buff skill slot のタグ。
+/// バフスキルのスロットを表すタグ。
 /// </summary>
 public struct BuffSkillSlotTag : IComponentData
 {
@@ -1043,42 +1087,45 @@ public struct BuffSkillSlotTag : IComponentData
 }
 
 /// <summary>
-/// owner に装備された buff skill の集約倍率。
-/// 毎フレーム一時配列から作る値であり、component として保存しない。
+/// 所有者が装備しているバフスキルの倍率を合算したもの。
+/// 必要なときにその場で計算する一時的な値なので、Component としては保存しない。
 /// </summary>
 public struct BuffAccumulator
 {
     /// <summary>
-    /// ダメージに掛ける倍率。
+    /// ダメージにかける倍率。
     /// </summary>
     public float DamageMultiplier;
 
     /// <summary>
-    /// 防御に掛ける倍率。
+    /// 防御力にかける倍率。
     /// </summary>
     public float DefenseMultiplier;
 
     /// <summary>
-    /// Cooldown に掛ける倍率。
+    /// クールタイムにかける倍率。
     /// </summary>
     public float CooltimeMultiplier;
 
     /// <summary>
-    /// 攻撃範囲に掛ける倍率。
+    /// 攻撃範囲にかける倍率。
     /// </summary>
     public float AttackRangeMultiplier;
 
     /// <summary>
-    /// 対象探索範囲に掛ける倍率。
+    /// ターゲットを探す範囲にかける倍率。
     /// </summary>
     public float TargetRangeMultiplier;
 }
 
 /// <summary>
-/// 初期装備 skill を作るための小さな factory。
+/// スキルの既定値を作る関数をまとめたクラス。
 /// </summary>
 public static class SkillDefaults
 {
+    /// <summary>
+    /// 最小限の設定から、攻撃スキル 1 つ分の初期データを作る。演出（SFX / VFX）とデバフはなし。
+    /// </summary>
     public static AttackSkillDefinition CreateDefaultAttackSkill(
         int id,
         float baseDamage,
@@ -1150,6 +1197,9 @@ public static class SkillDefaults
         };
     }
 
+    /// <summary>
+    /// 攻撃パターンごとの追加設定の既定値を作る。
+    /// </summary>
     public static AttackSkillAdvancedConfig CreateDefaultAdvancedConfig()
     {
         return new AttackSkillAdvancedConfig
@@ -1171,10 +1221,13 @@ public static class SkillDefaults
 }
 
 /// <summary>
-/// SkillCastTarget の可変長 circle 配列を安全に扱う helper。
+/// SkillCastTarget の円のリスト（位置・半径・ダメージの 3 つの配列）をまとめて安全に操作する関数。
 /// </summary>
 public static class SkillCastTargetUtility
 {
+    /// <summary>
+    /// 攻撃範囲（円）を 1 つ追加する。上限に達している場合は追加せず false を返す。
+    /// </summary>
     public static bool AddCircle(
         ref SkillCastTarget castTarget,
         float3 position,
@@ -1192,6 +1245,9 @@ public static class SkillCastTargetUtility
         return true;
     }
 
+    /// <summary>
+    /// index 番目の円の半径を返す。範囲外の index の場合は既定の半径を返す。
+    /// </summary>
     public static float GetAttackRange(SkillCastTarget castTarget, int index)
     {
         if (index >= 0 && index < castTarget.AttackRanges.Length)
@@ -1202,6 +1258,9 @@ public static class SkillCastTargetUtility
         return math.max(0f, castTarget.AttackRange);
     }
 
+    /// <summary>
+    /// index 番目の円のダメージを返す。範囲外の index の場合は既定のダメージを返す。
+    /// </summary>
     public static int GetDamage(SkillCastTarget castTarget, int index)
     {
         if (index >= 0 && index < castTarget.Damages.Length)
